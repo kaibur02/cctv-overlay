@@ -153,3 +153,18 @@ channel = 1
 ```
 
 Pair it with `secrets.ini` containing `password` (mode `0600`).
+
+## Start-up latency: main stream vs sub stream
+
+How quickly a camera appears is dominated by the recorder, not by this program. Measured on one Dahua
+recorder (HEVC, wired LAN), toggle to first picture:
+
+| `subtype` | Time to picture | Cost while visible |
+|---|---|---|
+| 1 (sub stream) | about 2.7 s (about 1.6 s for the recorder to answer the RTSP `DESCRIBE`, then about 2 s to the first keyframe) | about 0.7% of one core, 0.6 Mbit/s |
+| 0 (main stream) | about 0.8 s | about 2% of one core, 3 Mbit/s |
+
+Client-side tuning (UDP, video-only demuxing, probe settings) made no measurable difference in the same test. If the
+overlay is slow to appear, try `subtype = 0` (globally in `[stream]`, or per camera). Nothing runs while the overlay is
+hidden, so the extra cost applies only while it is visible. Your recorder may differ; measure with
+`CCTV_OVERLAY_MPV_TRACE` (see `docs/troubleshooting.md`).

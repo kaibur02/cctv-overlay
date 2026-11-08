@@ -153,3 +153,15 @@ guarantee. Before you share a log or `status` output in a bug report:
 
 - Remove any other personal details. Never share `secrets.ini`.
 - Do not share a core dump. It can contain the password (see [behaviour](behaviour.md#security-model)).
+
+## Diagnosing slow start-up (developer switches)
+
+Two environment variables exist for diagnosis only; they are not part of the stable interface:
+
+- `CCTV_OVERLAY_MPV_TRACE=1` (or `=trace`) makes the daemon forward verbose libmpv/FFmpeg log lines, each prefixed with
+  `mpvtrace +<ms>`. They pass through the same redactor as every other log line (`rtsp://user:pass@` becomes
+  `rtsp://***:***@`), but at `trace` level FFmpeg also logs RTSP authentication headers. **Never share a trace log
+  without reading it first.** With it you can see when the recorder answered `DESCRIBE`, when `PLAY` was sent and when the
+  first keyframe arrived.
+- `CCTV_OVERLAY_MPV_OPTS="name=value;name=value"` sets extra libmpv options for A/B experiments, applied after the
+  defaults.

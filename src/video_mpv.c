@@ -36,6 +36,7 @@
 #define STALL_CONNECT_MS 15000 /* no first frame after start (the RTSP socket timeout is 5 s) */
 #define RTSP_TIMEOUT_US "5000000"
 #define MAX_MPV_LOG_LINES 40
+#define MAX_MPV_TRACE_LINES 20000
 
 static struct {
 	guint next_session;
@@ -53,6 +54,7 @@ static struct {
 
 	gboolean first_reported, outcome_reported;
 	gboolean auth_failed, not_found, refused, timed_out;
+	gboolean trace; /* CCTV_OVERLAY_MPV_TRACE: developer-only verbose mpv log (redacted) */
 	gint64 start_ms, last_frame_ms;
 	guint watchdog;
 	guint log_lines;
@@ -199,6 +201,20 @@ static gboolean render_hook(GtkGLArea *area, void *user)
 
 static void handle_log(const mpv_event_log_message *m)
 {
+	if (V.trace) {
+		/* Developer diagnostic (CCTV_OVERLAY_MPV_TRACE=1): verbose mpv lines with a time offset,
+		 * always passed through the redactor. Not for normal use; mpv prints stream URLs at this level. */
+		if (V.log_lines++ < MAX_MPV_TRACE_LINES) {
+			char *t = g_strdup(m->text ? m->text : "");
+			g_strchomp(t);
+			char *s = log_redact(t);
+			log_info("mpvtrace +%" G_GINT64_FORMAT "ms [%s] %s", util_monotonic_ms() - V.start_ms,
+				 m->prefix ? m->prefix : "?", s);
+			g_free(s);
+			g_free(t);
+		}
+		return;
+	}
 	if (m->log_level > MPV_LOG_LEVEL_WARN || V.log_lines > MAX_MPV_LOG_LINES)
 		return;
 	if (++V.log_lines > MAX_MPV_LOG_LINES) {
@@ -430,6 +446,22 @@ guint video_start(const Config *cfg, VideoUrlBuilder build, void *build_user, co
 	set_opt(h, "idle", "yes");
 	set_opt(h, "force-window", "no");
 
+	/* Developer-only tuning hook: CCTV_OVERLAY_MPV_OPTS="name=value;name=value" is applied last so latency
+	 * experiments need no rebuild. Values are not logged (names only). Not documented for end users. */
+	const char *dev = g_getenv("CCTV_OVERLAY_MPV_OPTS");
+	if (dev && *dev) {
+		gchar **pairs = g_strsplit(dev, ";", -1);
+		for (gchar **p = pairs; p && *p; p++) {
+			gchar *eq = strchr(*p, '=');
+			if (!eq || eq == *p)
+				continue;
+			*eq = '\0';
+			log_info("video: developer mpv option override '%s'", *p);
+			set_opt(h, *p, eq + 1);
+		}
+		g_strfreev(pairs);
+	}
+
 	int e = mpv_initialize(h);
 	if (e < 0) {
 		util_wipe_free(url);
@@ -437,7 +469,11 @@ guint video_start(const Config *cfg, VideoUrlBuilder build, void *build_user, co
 		mpv_terminate_destroy(h);
 		return 0;
 	}
-	mpv_request_log_messages(h, "warn"); /* warn and above only; never forward verbose output */
+	const char *trace_env = g_getenv("CCTV_OVERLAY_MPV_TRACE");
+	V.trace = trace_env != NULL;
+	/* warn and above only; verbose output is forwarded solely in the explicit developer trace mode
+	 * (CCTV_OVERLAY_MPV_TRACE=1 -> "v", =trace -> "trace") */
+	mpv_request_log_messages(h, V.trace ? (g_strcmp0(trace_env, "trace") == 0 ? "trace" : "v") : "warn");
 	mpv_observe_property(h, 0, "hwdec-current", MPV_FORMAT_STRING);
 
 	struct wl_display *wl = NULL;
