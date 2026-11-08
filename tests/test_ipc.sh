@@ -11,6 +11,8 @@ PW_ENC='p%40ss%3Aw%2Frd%251'
 T=$(mktemp -d "${TMPDIR:-/tmp}/cctv-ipc-XXXXXX")
 export XDG_RUNTIME_DIR="$T/run"
 mkdir -m 700 "$XDG_RUNTIME_DIR"
+# Never let a test touch the real user state directory (auto-spawned daemons log there).
+export XDG_STATE_HOME="$T/state"
 mkdir -p "$T/cfg"
 unset CCTV_OVERLAY_PASSWORD CCTV_OVERLAY_USERNAME
 export CCTV_OVERLAY_STUB_DELAY_MS=30

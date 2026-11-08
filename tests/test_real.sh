@@ -28,6 +28,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/cctv-real-XXXXXX")
 chmod 700 "$T"
 SOCK="$T/ctl.sock"
 CFG="$T/config.ini"
+export XDG_STATE_HOME="$T/state"
 export CCTV_OVERLAY_BACKOFF_SCALE=0.05
 unset CCTV_OVERLAY_PASSWORD CCTV_OVERLAY_USERNAME
 

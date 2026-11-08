@@ -6,8 +6,11 @@
 #include "overlay.h"
 #include "util.h"
 
+#include <fcntl.h>
 #include <glib-unix.h>
+#include <glib/gstdio.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,10 +147,30 @@ static gboolean spawn_daemon(const char *socket_path, GError **err)
 		g_ptr_array_add(argv, (char *)"--no-overlay");
 	g_ptr_array_add(argv, NULL);
 
+	/* An auto-started daemon has no terminal, so its (already redacted) log goes to a private file:
+	 * $XDG_STATE_HOME/cctv-overlay/daemon.log, mode 0600, rotated once above 512 KiB. */
+	int logfd = -1;
+	char *dir = g_build_filename(g_get_user_state_dir(), "cctv-overlay", NULL);
+	if (g_mkdir_with_parents(dir, 0700) == 0) {
+		char *path = g_build_filename(dir, "daemon.log", NULL);
+		struct stat st;
+		if (stat(path, &st) == 0 && st.st_size > 512 * 1024) {
+			char *old = g_strconcat(path, ".1", NULL);
+			rename(path, old);
+			g_free(old);
+		}
+		logfd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+		g_free(path);
+	}
+	g_free(dir);
+
 	/* Config path only on argv; secrets stay in files/environment. */
-	gboolean ok = g_spawn_async(NULL, (char **)argv->pdata, NULL,
-				    G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
-				    detach_child, NULL, NULL, err);
+	gboolean ok = g_spawn_async_with_pipes_and_fds(NULL, (const char *const *)argv->pdata, NULL,
+						       G_SPAWN_STDIN_FROM_DEV_NULL | (logfd < 0 ? (G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL) : 0),
+						       detach_child, NULL, -1, logfd, logfd, NULL, NULL, 0, NULL, NULL,
+						       NULL, NULL, err);
+	if (logfd >= 0)
+		close(logfd);
 	g_ptr_array_free(argv, TRUE);
 	g_free(self);
 	return ok;
