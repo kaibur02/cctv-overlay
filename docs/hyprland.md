@@ -99,3 +99,20 @@ errors are reported by Hyprland; check its notifications or log if a bind does n
   ([install guide](install.md#optional-systemd-user-unit)).
 - The overlay is also toggled and cycled from the CLI, so any other launcher, script or bar can use the same
   commands.
+
+## Omarchy (tested form)
+
+On Omarchy, add bindings to `~/.config/hypr/bindings.lua` (your user-level file, loaded after Omarchy's defaults;
+never edit Omarchy's own files). This pair is in daily use on Hyprland 0.56.2 / Omarchy 4.5:
+
+```lua
+o.bind("CTRL + KP_Multiply", "Toggle CCTV overlay", "/home/YOU/.local/bin/cctv-overlay toggle")
+o.bind("KP_Multiply", "Next CCTV camera", "/home/YOU/.local/bin/cctv-overlay next")
+```
+
+- `KP_Multiply` is the numpad asterisk (works with NumLock on or off); the `*` on the main row is a different key.
+- A binding without a modifier takes that key away from all applications while Hyprland runs.
+- Use an absolute path: Hyprland may not have `~/.local/bin` on the `PATH` it launches commands with.
+- The daemon starts automatically on the first command, and an auto-started daemon logs (redacted) to
+  `$XDG_STATE_HOME/cctv-overlay/daemon.log` (default `~/.local/state/cctv-overlay/daemon.log`, mode 0600).
+- After editing, Hyprland reloads on save; check `hyprctl configerrors` and `hyprctl binds`.
