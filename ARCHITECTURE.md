@@ -230,31 +230,37 @@ Switch strategies to measure in M5:
 
 ```ini
 [general]
-# log_level = info            ; debug|info|warning|error
-# monitor = focused           ; focused|primary|<connector e.g. DP-1>
+# log_level = info    -- debug|info|warning|error
+# monitor = focused    -- focused|primary|<connector e.g. DP-1>
 # start_hidden = true
 
 [overlay]
 width = 480
 height = 270
-anchor = top-right            ; top-left|top-right|bottom-left|bottom-right
+# top-left|top-right|bottom-left|bottom-right
+anchor = top-right
 margin_x = 24
 margin_y = 24
-layer = overlay               ; overlay|top
+# overlay|top
+layer = overlay
 show_label = true
 show_status = true
-# opacity = 1.0               ; 0.1..1.0 (informational; layer opacity is compositor-dependent)
+# opacity = 1.0    -- 0.1..1.0 (informational; layer opacity is compositor-dependent)
 
 [stream]
-transport = tcp               ; tcp|udp
-subtype = 1                   ; 0=main, 1=sub (default sub for latency/bandwidth)
-hwdec = vaapi                 ; vaapi|vaapi-copy|auto-safe|no
+# tcp|udp
+transport = tcp
+# 0=main, 1=sub (default sub for latency/bandwidth)
+subtype = 1
+# vaapi|vaapi-copy|auto-safe|no
+hwdec = vaapi
 preview_snapshot = true
 preload_next = false
 reconnect = true
 
 [recorder]
-host = 192.168.1.100          ; placeholder; set to your recorder
+# placeholder; set to your recorder
+host = 192.168.1.100
 port = 554
 username = cctv
 path = /cam/realmonitor
@@ -266,20 +272,22 @@ channel = 1
 [camera.driveway]
 name = Driveway
 channel = 2
-# subtype = 0                 ; per-camera override
+# subtype = 0    -- per-camera override
 
 # Any RTSP source can bypass the Dahua URL builder:
 # [camera.other]
 # name = Other
-# url = rtsp://user:pass@host:554/path   ; discouraged: contains a secret
+# url = rtsp://user:pass@host:554/path    -- discouraged: contains a secret
 ```
+
+> **Note:** GKeyFile only supports full-line `#` comments; a trailing `; comment` would become part of the value. Comments in real config files must be on their own line.
 
 `secrets.ini` (0600, gitignored, owner-created):
 
 ```ini
 [recorder]
 password = change-me
-# username = cctv              ; optional override
+# username = cctv    -- optional override
 ```
 
 Precedence: `CCTV_OVERLAY_PASSWORD` / `CCTV_OVERLAY_USERNAME` > `secrets.ini` > error if missing.
