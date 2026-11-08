@@ -38,10 +38,11 @@ declare -A A=() # answers
 
 # ---------------------------------------------------------------- output helpers
 if [ -t 1 ]; then B=$'\e[1m' G=$'\e[32m' Y=$'\e[33m' R=$'\e[31m' N=$'\e[0m'; else B="" G="" Y="" R="" N=""; fi
-say()  { printf '%s\n' "$*"; }
-step() { printf '\n%s==> %s%s\n' "$B" "$*" "$N"; }
-okay() { printf '  %s✓%s %s\n' "$G" "$N" "$*"; }
-warn() { printf '  %s!%s %s\n' "$Y" "$N" "$*" >&2; }
+tilde() { local m="$*"; printf '%s' "${m//"$HOME"/\~}"; } # shorter messages: /home/you/... -> ~/...
+say()  { printf '%s\n' "$(tilde "$*")"; }
+step() { printf '\n%s==> %s%s\n' "$B" "$(tilde "$*")" "$N"; }
+okay() { printf '  %s✓%s %s\n' "$G" "$N" "$(tilde "$*")"; }
+warn() { printf '  %s!%s %s\n' "$Y" "$N" "$(tilde "$*")" >&2; }
 die()  { printf '%sError:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 
 have_tty() { [ -r /dev/tty ] && [ -w /dev/tty ] && { : </dev/tty; } 2>/dev/null; }
@@ -234,7 +235,7 @@ slug() { # camera id from a name: lowercase letters/digits only
 
 # ---------------------------------------------------------------- monitor
 list_monitors() {
-	command -v hyprctl >/dev/null && hyprctl monitors -j 2>/dev/null | jq -r '.[] | "\(.name)  \(.width)x\(.height) \(.description)"' 2>/dev/null || true
+	command -v hyprctl >/dev/null && hyprctl monitors -j 2>/dev/null | jq -r '.[] | "\(.name)  \(.width)x\(.height)  \(.make) \(.model)"' 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------- config
@@ -381,7 +382,7 @@ Run this yourself in a terminal:   $HERE/install.sh --set-password
 (In Claude Code you can type:      ! $HERE/install.sh --set-password )"
 	mkdir -p "$CONF_DIR"; chmod 700 "$CONF_DIR"
 	local p1 p2 user=""
-	printf 'It is stored only in %s (mode 0600) and never shown.\n' "$SECRETS" >/dev/tty
+	printf 'It is stored only in %s (mode 0600) and never shown.\n' "$(tilde "$SECRETS")" >/dev/tty
 	while :; do
 		printf 'Password: ' >/dev/tty; IFS= read -rs p1 </dev/tty; printf '\n' >/dev/tty
 		printf 'Repeat:   ' >/dev/tty; IFS= read -rs p2 </dev/tty; printf '\n' >/dev/tty

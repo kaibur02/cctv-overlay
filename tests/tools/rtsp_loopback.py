@@ -32,10 +32,13 @@ p.add_argument("--fps", type=int, default=25)
 p.add_argument("--gop", type=int, default=25)
 p.add_argument("--stall-after", type=float, default=0, help="stop sending media N s after PLAY (keeps socket open)")
 p.add_argument("--drop-after", type=float, default=0, help="close the connection N s after PLAY")
+p.add_argument("--vf", default="", help="extra ffmpeg video filter chain (e.g. drawtext for a camera-style OSD)")
+p.add_argument("--audio", action="store_true", help="add a quiet G.711 A-law audio track (8 kHz tone)")
 args = p.parse_args()
 
 REALM, NONCE = "loopback", "0123456789abcdef0123456789abcdef"
 clients, clients_lock = [], threading.Lock()
+aclients = []  # per-client audio queues (only with --audio)
 sps_pps = {}
 
 
@@ -100,8 +103,10 @@ def rtp_packets(nal, ts, seq, marker):
 
 
 def encoder_thread():
+    src = f"{args.pattern}{':' if '=' in args.pattern else '='}size={args.size}:rate={args.fps}"
+    vf = ["-vf", args.vf] if args.vf else []
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i",
-           f"{args.pattern}=size={args.size}:rate={args.fps}", "-c:v", "libx264", "-preset", "ultrafast",
+           src, *vf, "-c:v", "libx264", "-preset", "ultrafast",
            "-pix_fmt", "yuv420p", "-g", str(args.gop), "-bf", "0", "-x264-params",
            "rc-lookahead=0:sync-lookahead=0:threads=1:repeat-headers=1", "-f", "h264", "-"]
     pr = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL)
@@ -128,10 +133,30 @@ def encoder_thread():
                 pending.append(nal)
 
 
+def audio_thread():
+    """20 ms G.711 A-law frames (160 bytes at 8 kHz) to every playing client."""
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i",
+           "sine=frequency=330:sample_rate=8000", "-af", "volume=0.05", "-ac", "1", "-c:a", "pcm_alaw",
+           "-f", "alaw", "-"]
+    pr = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL)
+    n = 0
+    while True:
+        chunk = pr.stdout.read(160)
+        if not chunk:
+            log("audio encoder ended")
+            return
+        with clients_lock:
+            for c in aclients:
+                if not c.full():
+                    c.put((n, chunk))
+        n += len(chunk)
+
+
 # ---------- RTSP session ----------
 def serve(conn, addr):
     conn.settimeout(None)
     q, f = queue.Queue(maxsize=200), conn.makefile("rb")
+    aq, aseq = queue.Queue(maxsize=100), 0
     seq, playing, synced, t_play = 0, False, False, 0.0
     last_ts, last_ts_time, last_sr, npk, noct = 0, 0.0, 0.0, 0, 0
 
@@ -183,6 +208,14 @@ def serve(conn, addr):
                         log("dropping connection (test knob)")
                         return
                     stalled = args.stall_after and time.time() - t_play > args.stall_after
+                    while args.audio and synced and not stalled:
+                        try:
+                            apos, adata = aq.get_nowait()
+                        except queue.Empty:
+                            break
+                        ah = bytes([0x80, 8]) + (aseq & 0xFFFF).to_bytes(2, "big") + (apos & 0xFFFFFFFF).to_bytes(4, "big") + b"\x00\x00\x00\x02"
+                        aseq += 1
+                        send(b"$\x02" + (len(ah) + len(adata)).to_bytes(2, "big") + ah + adata)
                     try:
                         frame, idr, nals = q.get_nowait()
                     except queue.Empty:
@@ -219,13 +252,18 @@ def serve(conn, addr):
                 sdp = ("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=loopback\r\nt=0 0\r\nm=video 0 RTP/AVP 96\r\n"
                        "a=rtpmap:96 H264/90000\r\n"
                        f"a=fmtp:96 packetization-mode=1;sprop-parameter-sets={sprop}\r\na=control:track1\r\n")
+                if args.audio:
+                    sdp += "m=audio 0 RTP/AVP 8\r\na=rtpmap:8 PCMA/8000\r\na=control:track2\r\n"
                 reply(200, "OK", cseq, f"Content-Base: {uri}/\r\nContent-Type: application/sdp\r\n", sdp)
             elif method == "SETUP":
-                reply(200, "OK", cseq, "Session: 12345678\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
+                ch = "2-3" if uri.rstrip("/").endswith("track2") else "0-1"
+                reply(200, "OK", cseq, f"Session: 12345678\r\nTransport: RTP/AVP/TCP;unicast;interleaved={ch}\r\n")
             elif method == "PLAY":
                 reply(200, "OK", cseq, "Session: 12345678\r\nRange: npt=0.000-\r\n")
                 with clients_lock:
                     clients.append(q)
+                    if args.audio:
+                        aclients.append(aq)
                 playing, t_play = True, time.time()
                 log(f"PLAY from {addr[0]}:{addr[1]}")
             elif method == "TEARDOWN":
@@ -239,6 +277,8 @@ def serve(conn, addr):
         with clients_lock:
             if q in clients:
                 clients.remove(q)
+            if aq in aclients:
+                aclients.remove(aq)
         log(f"client {addr[0]}:{addr[1]} gone")
         try:
             conn.close()
@@ -248,6 +288,8 @@ def serve(conn, addr):
 
 def main():
     threading.Thread(target=encoder_thread, daemon=True).start()
+    if args.audio:
+        threading.Thread(target=audio_thread, daemon=True).start()
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", args.port))

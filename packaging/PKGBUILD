@@ -1,19 +1,18 @@
-# DRAFT — not yet tested with makepkg on a clean system. Maintainer: TBD.
+# Maintainer: Kaibur02 (https://github.com/Kaibur02)
 #
 # Build from a local git checkout of this repository (only COMMITTED content is packaged):
 #   cd packaging && makepkg -si
 #
 # For a release, replace the source line with a tagged git URL, for example:
-#   source=("$pkgname::git+https://<repository-url>#tag=v$pkgver")
+#   source=("$pkgname::git+https://github.com/Kaibur02/cctv-overlay#tag=v$pkgver")
 
 pkgname=cctv-overlay
 pkgver=0.1.0
 pkgrel=1
-pkgdesc='Lightweight CCTV picture-in-picture overlay for Wayland (layer-shell, libmpv, Dahua/RTSP)'
+pkgdesc='CCTV picture-in-picture overlay for Wayland: 4-camera grid, RTSP (Dahua, Hikvision, Reolink, Uniview, ...)'
 arch=('x86_64')
-url='https://example.invalid/cctv-overlay' # TBD: project URL
-# TBD: the licence has not been decided (MIT is proposed). Do not publish with this value.
-license=('custom:TBD')
+url='https://github.com/Kaibur02/cctv-overlay'
+license=('MIT')
 depends=(
   'glib2'
   'json-glib'
@@ -52,6 +51,7 @@ package() {
 
   # Documentation and optional Hyprland snippets (examples only; nothing is applied automatically).
   local doc="$pkgdir/usr/share/doc/$pkgname"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$doc/README.md"
   install -Dm644 CHANGELOG.md "$doc/CHANGELOG.md"
   install -Dm644 -t "$doc" docs/install.md docs/configuration.md docs/hyprland.md docs/troubleshooting.md

@@ -113,8 +113,7 @@ makepkg -si
 ```
 
 It installs the binary, the documentation, the systemd user unit (`/usr/lib/systemd/user/cctv-overlay.service`)
-and the Hyprland snippets under `/usr/share/doc/cctv-overlay/`. The package licence is still undecided
-(`custom:TBD`); see the README.
+and the Hyprland snippets under `/usr/share/doc/cctv-overlay/`. The package is MIT licensed.
 
 ## 4. Create your configuration
 

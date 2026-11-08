@@ -328,47 +328,29 @@ readable, and names the exact file and mode in the warning.
 The core (config, camera model, IPC, video engine) has no Hyprland or Omarchy dependency. Only the overlay
 backend is compositor-specific; `--no-layer-shell` selects the fallback window.
 
-## 10. Repository layout (planned)
+## 10. Repository layout
 
 ```
 cctv-overlay/
-├── Makefile
-├── README.md
-├── LICENSE                     (TBD)
-├── CHANGELOG.md
-├── PLAN.md  ARCHITECTURE.md  DELEGATION.md
-├── src/
-│   ├── main.c                  entry: daemon or CLI
-│   ├── app.c/h                 state machine, wiring
-│   ├── config.c/h              GKeyFile load/validate
-│   ├── camera.c/h              ordered cameras, URL builder
+├── install.sh                  guided installer (requirements, build, config, binds, password, test)
+├── Makefile                    build, check, check-real, install
+├── src/                        daemon + CLI (C, GLib/GTK4/libmpv)
+│   ├── main.c                  entry: CLI client, daemon, offline `check`
+│   ├── app.c/h                 views (grid / single), per-tile state machine, IPC handler
+│   ├── config.c/h              GKeyFile load/validate, URL templates, [grid]
+│   ├── camera.c/h              ordered cameras, URL builder (credentials from secrets only)
 │   ├── ipc.c/h                 Unix socket server/client
-│   ├── overlay.c/h             layer-shell window, GL area, CSS
-│   ├── video.c/h               libmpv render API engine
-│   ├── snapshot.c/h            libcurl Digest snapshot
+│   ├── overlay_gtk.c/h         layer-shell window, tile grid, speaker icon (overlay_stub.c for tests)
+│   ├── video_mpv.c             libmpv render API, one player per tile (video_stub.c for tests)
 │   ├── logging.c/h             redaction, levels
 │   └── util.c/h                strings, time, percent-encoding
-├── tests/
-│   ├── test_config.c
-│   ├── test_util.c
-│   └── test_ipc.sh
-├── examples/
-│   ├── config.example.ini
-│   └── secrets.example.ini
-├── integrations/hyprland/
-│   ├── example.lua             Omarchy 4.5 / Hyprland Lua config
-│   └── example.conf            classic Hyprland config
-├── packaging/
-│   ├── PKGBUILD
-│   └── cctv-overlay.service
-├── docs/
-│   ├── install.md
-│   ├── configuration.md
-│   ├── hyprland.md
-│   └── troubleshooting.md
-└── scripts/
-    ├── dev-rtsp.sh             local ffmpeg RTSP harness
-    └── check-latency.sh
+├── tests/                      unit tests, IPC test, real-display test, loopback RTSP server
+├── tools/demo/                 synthetic demo cameras + demo launcher (made docs/media)
+├── examples/                   config, secrets and installer-answers templates
+├── integrations/hyprland/      optional bind snippets (Lua and hyprlang)
+├── packaging/                  Arch PKGBUILD, systemd user unit
+├── docs/                       user docs, requirements, AI install guide, ADRs, media
+└── spike/                      the M1 layer-shell/libmpv feasibility spike (historical)
 ```
 
 ## 11. Open technical questions (M1 spike)

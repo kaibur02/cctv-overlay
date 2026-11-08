@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org/) once
-version 0.1.0 is tagged. Nothing has been tagged yet.
+version 0.1.0 is tagged. Nothing has been tagged yet. Licensed under MIT.
 
 ## [Unreleased]
 
@@ -22,6 +22,11 @@ version 0.1.0 is tagged. Nothing has been tagged yet.
   `--answers` for unattended/AI installs, `--set-password`, `--check`, `--test`, `--uninstall`.
 - Docs: `docs/requirements.md`, `docs/ai-install.md`, `examples/install.answers.example`.
 - Status JSON: `view`, `audio`, `tiles`; `list --json` marks `in_grid`.
+- MIT licence (`LICENSE`), `SECURITY.md` (private vulnerability reporting).
+- Demo tooling: `tools/demo/scenes.py` (synthetic CCTV-style scenes, no real footage) and `tools/demo/run-demo.sh`
+  (five loopback cameras + an isolated demo daemon); README screenshots and GIFs in `docs/media/` made with it.
+- Loopback RTSP test server: `--vf` (extra video filter) and `--audio` (G.711 track).
+- Installer prints `~` instead of the home path and shows monitors by make/model (no serial numbers).
 
 - Daemon `cctv-overlay daemon` with a thin CLI client: `toggle`, `next`, `prev`, `show`, `hide`, `status`
   (`--json`), `list`, `reload`, `quit`, `ping`.
