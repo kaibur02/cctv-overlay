@@ -100,10 +100,13 @@ See §7 for the schema.
 - Options (initial set, to be tuned by measurement):
   - `vo=libmpv`
   - `hwdec=vaapi` (fallback `vaapi-copy`, then `auto-safe`)
-  - `profile=low-latency`
   - `rtsp-transport=tcp` (configurable `udp`)
   - `audio=no`, `ao=null`
-  - `cache=no`, `demuxer-readahead-secs=0`
+  - `profile=low-latency` (verified on this system: `audio-buffer=0`, `vd-lavc-threads=1`,
+    `cache-pause=no`, `demuxer-lavf-o-add=fflags=+nobuffer`, `demuxer-lavf-probe-info=nostreams`,
+    `demuxer-lavf-analyzeduration=0.1`, `video-sync=audio`, `interpolation=no`,
+    `video-latency-hacks=yes`, `stream-buffer-size=4k`)
+  - `cache=no`, `demuxer-readahead-secs=0` (additional; **not** part of the built-in profile — A/B test)
   - `network-timeout=3`
   - `keep-open=no`, `idle=yes`, `force-window=no`
   - log level `warn`, no terminal output, no URL logging
@@ -123,8 +126,8 @@ See §7 for the schema.
   (`gdk_surface_set_input_region(surface, empty_cairo_region)`); reapply on map and size change. If GDK's
   setter proves unreliable, fall back to `wl_surface_set_input_region` through
   `gdk_wayland_surface_get_wl_surface()` (headers available).
-- No focus: keyboard mode NONE, `gtk_window_set_focusable(FALSE)`, no `gtk_window_present` focus steal;
-  never call `gtk_window_set_active`.
+- No focus: keyboard mode NONE, `gtk_widget_set_focusable(GTK_WIDGET(window), FALSE)`, and plain
+  show/hide; avoid `gtk_window_present()` focus requests and `gtk_window_set_focus()` entirely.
 - Monitor: config `focused | primary | <connector>`; resolved with GDK monitor geometry (handles DP-1's
   negative origin). "Focused" resolution is resolved at show time; an explicit connector is the
   predictable option for scripts.
