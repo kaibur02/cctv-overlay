@@ -9,6 +9,12 @@ static gboolean g_visible;
 static char *g_label;
 static AppState g_state = APP_HIDDEN;
 
+gboolean overlay_init(GError **err)
+{
+	(void)err;
+	return TRUE;
+}
+
 void overlay_show(const Config *cfg, const char *label)
 {
 	(void)cfg;

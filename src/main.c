@@ -3,6 +3,7 @@
 #include "config.h"
 #include "ipc.h"
 #include "logging.h"
+#include "overlay.h"
 #include "util.h"
 
 #include <glib-unix.h>
@@ -55,6 +56,14 @@ static int run_daemon(void)
 		return EXIT_USAGE;
 	}
 	log_set_level(cfg->log_level);
+
+	/* Real build: opens the Wayland display and verifies layer-shell; fail loudly if it cannot. */
+	if (!opt_no_overlay && !overlay_init(&e)) {
+		fprintf(stderr, "cctv-overlay: overlay unavailable: %s\n", e->message);
+		g_error_free(e);
+		config_free(cfg);
+		return EXIT_FAILED;
+	}
 
 	double scale = 1.0;
 	const char *sc = g_getenv("CCTV_OVERLAY_BACKOFF_SCALE"); /* test knob */

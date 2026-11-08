@@ -3,8 +3,8 @@
 
 /* Video engine interface.
  *
- * Implementations: video_stub.c (M2, simulated) and, later, a libmpv render-API engine.
- * Swap by changing the object file in the Makefile (VIDEO_OBJ).
+ * Implementations: video_stub.c (simulated; `make check`, `make STUB=1`) and video_mpv.c (libmpv
+ * render API drawing into the overlay's GtkGLArea; the default build). The Makefile picks one.
  *
  * Contract (the real engine must honour it):
  *  - Everything is called on, and every callback is delivered on, the GLib main-loop thread.
@@ -24,6 +24,8 @@
  *  - Stall detection (no frame for ~10 s while live) and mpv end-file errors are the engine's
  *    job: report them through `error`. Retry/backoff policy lives in app.c, not in the engine.
  *  - video_stop() is idempotent and frees the player, network connection and GL state.
+ *  - The mpv engine needs the overlay window (overlay_show() first) and fails video_start() with a
+ *    message when there is none (e.g. `daemon --no-overlay` on the real build).
  */
 
 #include "config.h"
