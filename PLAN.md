@@ -118,7 +118,9 @@ produce a visible state, not a hang.
 ### M7 — Packaging, documentation and release readiness
 Makefile install/uninstall, PKGBUILD, optional systemd user unit, example configs, Hyprland integration
 snippets (Lua and classic), README/install/troubleshooting, licence, `CHANGELOG.md`, `v0.1.0` tag.
-Independent security review and adversarial code review completed; findings fixed or documented.
+Installation must never overwrite an existing user config or secrets file; it installs examples only and
+prints the exact copy command. Independent security review and adversarial code review completed; findings
+fixed or documented.
 
 **Exit:** A11–A15; a fresh clone can be built, configured and run following only the docs.
 
