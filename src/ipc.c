@@ -22,6 +22,8 @@ struct IpcServer {
 	void *user;
 };
 
+static guint g_conns; /* live client connections, capped to keep the main loop responsive */
+
 typedef struct {
 	IpcServer *srv;
 	GSocketConnection *conn;
@@ -47,6 +49,8 @@ char *ipc_default_socket_path(GError **err)
 
 static void conn_free(Conn *c)
 {
+	if (g_conns > 0)
+		g_conns--;
 	if (c->timeout_src)
 		g_source_remove(c->timeout_src);
 	g_cancellable_cancel(c->cancel);
@@ -218,8 +222,13 @@ static gboolean on_incoming(GSocketService *svc, GSocketConnection *conn, GObjec
 	}
 	g_object_unref(cred);
 
+	if (g_conns >= 8) { /* a same-UID client cannot starve the control channel */
+		log_warn("control: too many concurrent connections; rejecting one");
+		return TRUE;
+	}
 	Conn *c = g_new0(Conn, 1);
 	c->srv = s;
+	g_conns++;
 	c->conn = g_object_ref(conn);
 	c->cancel = g_cancellable_new();
 	c->timeout_src = g_timeout_add_seconds(IPC_TIMEOUT_S, conn_timeout, c);
@@ -288,6 +297,14 @@ IpcServer *ipc_server_new(const char *socket_path, IpcHandler handler, IpcAfterR
 		goto fail;
 	}
 
+	/* Remove only a stale socket, never an arbitrary file a mistyped --socket points at. */
+	struct stat pst;
+	if (lstat(path, &pst) == 0 && !S_ISSOCK(pst.st_mode)) {
+		g_set_error(err, G_IO_ERROR, G_IO_ERROR_FAILED,
+			    "refusing to remove %s: it exists and is not a socket", path);
+		close(fd);
+		goto fail;
+	}
 	unlink(path); /* stale socket from a crashed daemon; we hold the lock */
 	IpcServer *s = g_new0(IpcServer, 1);
 	s->path = path;

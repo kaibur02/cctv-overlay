@@ -1,6 +1,6 @@
 # ADR-0003: Control the app over a Unix socket with a thin CLI
 
-- **Status:** Proposed
+- **Status:** Accepted (implemented in M2; 83 headless checks, same-UID socket, CLI auto-spawn and stale-socket recovery verified)
 - **Date:** 2026-11-08
 - **Deciders:** project lead
 - **Related:** ARCHITECTURE.md §3.5–§3.6

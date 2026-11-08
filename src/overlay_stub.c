@@ -48,5 +48,6 @@ void overlay_set_label(const char *label)
 
 /* Test-only inspection (declared in the tests, not in overlay.h). */
 gboolean overlay_stub_visible(void) { return g_visible; }
+void overlay_stub_simulate_lost(void) { g_visible = FALSE; } /* window destroyed behind the app's back */
 const char *overlay_stub_label(void) { return g_label; }
 AppState overlay_stub_state(void) { return g_state; }

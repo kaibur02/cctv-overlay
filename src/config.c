@@ -293,6 +293,38 @@ static void load_secrets(Config *cfg)
 		cfg->password = g_strdup(p);
 	}
 	log_register_secret(cfg->password);
+
+	/* Basic auth is base64(user:password); register it so an RTSP Authorization header cannot leak it. */
+	if (cfg->username && *cfg->username && cfg->password && *cfg->password) {
+		char *pair = g_strdup_printf("%s:%s", cfg->username, cfg->password);
+		char *b64 = g_base64_encode((const guchar *)pair, strlen(pair));
+		log_register_secret(b64);
+		util_wipe_free(pair);
+		util_wipe_free(b64);
+	}
+
+	/* Credentials may also be embedded in a per-camera url = override. Register them as secrets; the
+	 * redactor's URL rule is only a fallback for credentials it has not been told about. */
+	for (guint i = 0; i < cfg->cameras->len; i++) {
+		const Camera *cam = g_ptr_array_index(cfg->cameras, i);
+		const char *sep, *auth, *at, *slash, *colon;
+		if (!cam->url || !(sep = strstr(cam->url, "://")))
+			continue;
+		auth = sep + 3;
+		at = strchr(auth, '@');
+		slash = strchr(auth, '/');
+		if (!at || (slash && slash < at) || !(colon = memchr(auth, ':', (gsize)(at - auth))))
+			continue;
+		char *raw = g_strndup(colon + 1, (gsize)(at - colon - 1));
+		char *dec = g_uri_unescape_string(raw, NULL);
+		if (raw && *raw)
+			log_register_secret(raw);
+		if (dec && *dec && (!raw || strcmp(dec, raw) != 0))
+			log_register_secret(dec);
+		log_warn("camera '%s' has credentials in its url override; prefer secrets.ini", cam->id);
+		util_wipe_free(raw);
+		util_wipe_free(dec);
+	}
 }
 
 Config *config_load(const char *path, GError **err)
@@ -402,11 +434,11 @@ Config *config_load(const char *path, GError **err)
 		cfg->opacity = o;
 	}
 	if (cfg->path[0] != '/') {
-		ok = FAIL(err, p, "[recorder] path: must start with '/' (got '%s')", cfg->path);
+		ok = FAIL(err, p, "[recorder] path: must start with '/'");
 		goto out;
 	}
 	if (cfg->host && !host_ok(cfg->host)) {
-		ok = FAIL(err, p, "[recorder] host: '%s' is not a valid host name or address", cfg->host);
+		ok = FAIL(err, p, "[recorder] host: not a valid host name or address");
 		goto out;
 	}
 

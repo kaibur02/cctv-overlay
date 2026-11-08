@@ -3,7 +3,7 @@
 **Version:** 0.1 planning
 **Date:** 2026-11-08
 **Owner:** project lead (Tier 1)
-**Status:** Milestone 0 complete; implementation gate pending
+**Status:** M0-M4 complete and validated; M5-M7 drafted. Remaining work is release polish, the deferred review items listed in §13 of ARCHITECTURE.md, and the real-camera/game/click checks in the handoff.
 
 ## 1. Objective
 
@@ -219,3 +219,19 @@ No test is marked passed without a command, exit status and a result summary in 
 All acceptance criteria A1–A15 have evidence in `.agent-work/TESTS.md`; the fullscreen matrix is honest
 about any compositor limitation; a fresh clone builds and runs from the documented steps; credentials are
 absent from Git, logs and argv; the owner has used it with their own shortcuts and confirmed the feel.
+
+## 12. Status at 2026-11-08
+
+| Milestone | State |
+|---|---|
+| M0 recon | complete |
+| M1 spike | complete; GO (ADR-0001/0002 accepted) |
+| M2 core | complete; 83 headless checks |
+| M3 playback | complete; real camera live |
+| M4 overlay | complete; above true fullscreen, click-through probe passed, physical click pending |
+| M5 controls | complete; toggle/next/prev/show/hide, cycle-while-closed, measured latency; snapshot preview not needed (0.8 s achieved) |
+| M6 reliability | mostly complete; 25-cycle + 6-minute soak, fd/thread/RSS stable; F3/F7/F10 remain |
+| M7 packaging/docs | draft complete; `makepkg` build passed; unit not run live; licence TBD |
+
+Open release blockers: F3 (optional), licence choice, physical click check, monitor-unplug check, game scanout
+measurement, systemd unit live test. Security fixes S1-S4/S6-S10/S12/S14 are applied and covered by tests.

@@ -9,7 +9,9 @@
 #include <fcntl.h>
 #include <glib-unix.h>
 #include <glib/gstdio.h>
+#include <math.h>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +52,11 @@ static gboolean on_signal(gpointer data)
 
 static int run_daemon(void)
 {
+	/* The daemon holds the RTSP password in memory; never let a crash write it into a core dump.
+	 * systemd units can set LimitCORE=0 too, but an auto-started daemon has no unit. */
+	struct rlimit no_core = { 0, 0 };
+	setrlimit(RLIMIT_CORE, &no_core);
+
 	GError *e = NULL;
 	Config *cfg = config_load(opt_config, &e);
 
@@ -70,8 +77,11 @@ static int run_daemon(void)
 
 	double scale = 1.0;
 	const char *sc = g_getenv("CCTV_OVERLAY_BACKOFF_SCALE"); /* test knob */
-	if (sc && *sc)
+	if (sc && *sc) {
 		scale = g_ascii_strtod(sc, NULL);
+		if (!isfinite(scale) || scale <= 0 || scale > 600)
+			scale = 1.0;
+	}
 
 	g_loop = g_main_loop_new(NULL, FALSE);
 	AppOptions ao = { .overlay_enabled = !opt_no_overlay, .backoff_scale = scale, .quit_cb = quit_loop };
@@ -159,7 +169,11 @@ static gboolean spawn_daemon(const char *socket_path, GError **err)
 			rename(path, old);
 			g_free(old);
 		}
-		logfd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+		logfd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0600);
+		if (logfd >= 0) {
+			fchmod(logfd, 0600); /* tighten a pre-existing looser file */
+			chmod(dir, 0700);
+		}
 		g_free(path);
 	}
 	g_free(dir);

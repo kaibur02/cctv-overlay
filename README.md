@@ -4,12 +4,14 @@ A lightweight, self-contained Linux daemon that shows a live Dahua/RTSP camera f
 click-through picture-in-picture overlay above your desktop, including over fullscreen windows on
 compositors that allow it.
 
-> **Status: working on Hyprland, pre-release (0.1.0 not yet tagged).**
-> - Verified on Hyprland 0.56.2 (Arch Linux, AMD GPU with VA-API): the overlay shows a live stream over a
->   true fullscreen window, focus does not move, typing reaches the fullscreen application, and the
->   overlay releases its resources when hidden. Physical mouse click-through is still to be confirmed by hand.
-> - Video and control were verified against a **local loopback RTSP server**. A **real Dahua camera has not
->   been tested yet**; real camera validation is pending.
+> **Status: working and validated with a real Dahua NVR on Hyprland; pre-release (0.1.0 not yet tagged).**
+> - Verified on Hyprland 0.56.2 (Arch Linux, AMD GPU with VA-API): five real camera channels, live video over a
+>   true fullscreen window, no focus change, typing reaches the fullscreen application, and every resource is
+>   released when hidden. Physical mouse click-through is still to be confirmed by hand.
+> - With this recorder the **main stream** opens in about 0.8 s (the sub stream took about 2.7 s because the
+>   recorder starts it on demand); the stream type is configurable per camera. Nothing runs while hidden.
+> - A security and a lifecycle review have been completed. Their findings are listed under
+>   [Known limitations](#known-limitations) and in the changelog; the highest-priority fixes are not yet applied.
 > - Other compositors and GPUs are untested. The licence is not decided yet (see below).
 
 ## What it does
@@ -19,7 +21,8 @@ compositors that allow it.
 - Show video in the **layer-shell `overlay` layer**, above normal windows and fullscreen content.
 - **Never take keyboard focus**; the overlay is built to pass pointer input through to the window below
   (empty input region; physical click test pending).
-- Decode the camera's **sub stream** with VA-API hardware decoding and a low-latency libmpv profile.
+- Decode the camera stream with VA-API hardware decoding and a low-latency libmpv profile. Sub stream is the
+  default for bandwidth; the main stream can start much faster on recorders that start sub streams on demand.
 - **Release everything when hidden**: no player, no RTSP connection and no GPU surface while the overlay is closed.
 - Keep credentials out of config files in the repository, out of logs and out of command lines.
 - Run as a user-level daemon with a local Unix-socket control interface. It has no network listener.
@@ -68,6 +71,27 @@ Key bindings are not chosen for you. Placeholder examples for Hyprland are in
 | `cctv-overlay ping` | Health check |
 
 Exit codes and details: [`docs/behaviour.md`](docs/behaviour.md).
+
+## Known limitations
+
+- **Physical click-through is unverified.** The overlay sets an empty input region and a pointer-event probe
+  confirmed the compositor sends it no pointer events; one real click still needs checking by hand.
+- **Rapid camera commands are not coalesced** (review finding F3). A few commands per second are fine; hundreds
+  per second can block the UI while players are torn down and rebuilt.
+- **Error classification is heuristic** (F7): a warning containing a number such as `401` can pick the wrong
+  friendly message. The message is cosmetic; the stream state is correct.
+- **Developer option channel**: `CCTV_OVERLAY_MPV_OPTS` can set arbitrary libmpv options. It is for the same
+  user who can already run code as that user, and is documented as unsafe for untrusted environments.
+- **A per-camera `url =` override may contain credentials.** They are registered with the redactor and a warning
+  is logged, but the string stays in the configuration object. Prefer `secrets.ini`.
+- **Plain RTSP is unencrypted.** A hostile on-path device could downgrade authentication. Use a dedicated
+  low-privilege account and a trusted network; `rtsps://` is not implemented.
+- **Direct scanout is disabled** for a fullscreen window on the same monitor while the overlay is mapped
+  (Hyprland behaviour). Scanout was already off on the development machine; the frame-rate cost in a game has
+  not been measured.
+- Only Hyprland has been tested. GNOME and X11 are not supported; other Wayland compositors are untested.
+- The systemd unit's sandboxing has not been exercised in a live user session.
+- `start_hidden`, `preview_snapshot`, `preload_next` and `opacity` are accepted but not implemented.
 
 ## Documentation
 

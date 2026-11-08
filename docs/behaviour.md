@@ -31,7 +31,8 @@ use the systemd user unit (see [`install.md`](install.md)).
 ### States
 
 `hidden → connecting → live`. Stream errors or stalls go to `reconnecting` (retries after 0.5, 1, 2, 4 and 8 s,
-at most 5 attempts), then to `error`. `hide` always returns to `hidden`. If the stream cannot even be started
+at most 5 attempts), then to `error`. The backoff is reset only after the stream has stayed live for 15 s,
+so a stream that delivers one frame and drops cannot loop forever. `hide` always returns to `hidden`. If the stream cannot even be started
 (for example no password configured), the state is `error` immediately, without retries.
 
 ### Exit codes
@@ -77,7 +78,9 @@ only when a stream is about to start.
   other can read it) or in the environment (`CCTV_OVERLAY_PASSWORD`, `CCTV_OVERLAY_USERNAME`). They are never
   on a command line.
 - The RTSP URL (with percent-encoded credentials) is built only at connect time, in a heap buffer that is
-  wiped after use. It is not stored in configuration structures, status output, logs or error messages.
+  wiped after use. It is never in status output, logs or error messages. Cameras resolved from recorder
+  settings store no URL; an explicit `url =` override is stored as written (it may contain credentials and is
+  discouraged; such credentials are registered with the redactor and a warning is logged).
 - All log output and error replies pass through a redactor: `scheme://user:pass@` becomes
   `scheme://***:***@`, and the registered password (raw and percent-encoded) becomes `***`.
 - The control socket is `$XDG_RUNTIME_DIR/cctv-overlay/control.sock` (directory `0700`, socket `0600`), and
@@ -86,9 +89,10 @@ only when a stream is about to start.
 - One daemon per user (`flock` on `daemon.lock` next to the socket). The socket is removed on `quit`, SIGTERM and SIGINT.
 - `make install` only writes the binary and example files under `$(PREFIX)`. It never creates or overwrites
   anything in your home configuration directory.
-- Known limit: the password is held in process memory while the daemon runs, and GLib parser buffers and
-  mpv's memory may hold it briefly. A core dump can therefore contain it. Disable core dumps for the daemon
-  if that matters to you (`ulimit -c 0` in the shell that starts it, or `LimitCORE=0` in the systemd unit).
+- The daemon sets `RLIMIT_CORE=0` itself, so a crash cannot write its memory (and the password) to a core file;
+  the systemd unit also sets `LimitCORE=0`. The password still exists in process memory while the daemon runs
+  and briefly in GLib/mpv buffers. Trace mode (`CCTV_OVERLAY_MPV_TRACE=1|trace`) is developer-only and its
+  output must be treated as sensitive even though the redactor removes URLs and Authorization headers.
 
 ## Settings that are accepted but do nothing yet
 

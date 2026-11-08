@@ -17,6 +17,8 @@ struct App {
 	guint session;
 	guint retries;
 	guint retry_src;
+	guint live_src;      /* resets the backoff only after a sustained LIVE period */
+	guint stable_ms;
 	char *error;
 	gint64 start_ms;
 };
@@ -79,6 +81,10 @@ static void stop_stream(App *a)
 		g_source_remove(a->retry_src);
 		a->retry_src = 0;
 	}
+	if (a->live_src) {
+		g_source_remove(a->live_src);
+		a->live_src = 0;
+	}
 	video_stop();
 	a->session = 0;
 }
@@ -127,14 +133,30 @@ static void stream_failed(App *a, const char *msg)
 	}
 }
 
+static gboolean live_stable_cb(gpointer data)
+{
+	App *a = data;
+	a->live_src = 0;
+	if (a->state == APP_LIVE) {
+		a->retries = 0;
+		log_debug("stream stable; reconnect backoff reset");
+	}
+	return G_SOURCE_REMOVE;
+}
+
 static void on_first_frame(void *user, guint session)
 {
 	App *a = user;
 	if (session != a->session || a->state != APP_CONNECTING)
 		return;
-	a->retries = 0;
 	set_error(a, NULL);
 	set_state(a, APP_LIVE);
+	/* Do not reset the backoff on the first frame: a stream that delivers one frame and drops would
+	 * otherwise restart at 0.5 s forever. Reset only after it has stayed live for stable_ms. */
+	if (a->stable_ms == 0)
+		a->retries = 0;
+	else if (a->retries > 0 && !a->live_src)
+		a->live_src = g_timeout_add(a->stable_ms, live_stable_cb, a);
 }
 
 static void on_error(void *user, guint session, const char *msg)
@@ -154,17 +176,15 @@ static void on_ended(void *user, guint session)
 static void open_current(App *a)
 {
 	const char *name = app_current_camera(a)->name;
-	gboolean was_hidden = a->state == APP_HIDDEN;
 
 	a->retries = 0;
 	set_error(a, NULL);
 	a->start_ms = util_monotonic_ms();
-	if (a->opt.overlay_enabled) {
-		if (was_hidden)
-			overlay_show(a->cfg, name);
-		else
-			overlay_set_label(name);
-	}
+	/* Idempotent: re-shows a window that exists, and re-creates one that was destroyed behind our
+	 * back (monitor unplug, compositor closed the layer surface). Without this, the app could get
+	 * stuck failing to start a stream because there is no GL area. */
+	if (a->opt.overlay_enabled)
+		overlay_show(a->cfg, name);
 	start_stream(a); /* sets CONNECTING, or ERROR when the stream cannot even start */
 }
 
@@ -176,8 +196,15 @@ App *app_new(Config *cfg, const AppOptions *opt)
 	a->cfg = cfg;
 	a->cams = camera_list_new(cfg);
 	a->opt = *opt;
-	if (a->opt.backoff_scale <= 0)
+	if (!(a->opt.backoff_scale > 0) || a->opt.backoff_scale > 600)
 		a->opt.backoff_scale = 1.0;
+	/* Test knob; 0 restores the old "reset on first frame" behaviour. */
+	const char *stable = g_getenv("CCTV_OVERLAY_LIVE_STABLE_MS");
+	a->stable_ms = 15000;
+	if (stable && *stable) {
+		gint64 v = g_ascii_strtoll(stable, NULL, 10);
+		a->stable_ms = (guint)CLAMP(v, 0, 600000);
+	}
 	a->state = APP_HIDDEN;
 	a->start_ms = util_monotonic_ms();
 	log_set_level(cfg->log_level);
@@ -293,7 +320,9 @@ gboolean app_reload(App *a, GError **err)
 	log_set_level(nc->log_level);
 	log_info("configuration reloaded (%u cameras)", nc->cameras->len);
 
-	if (a->state != APP_HIDDEN) {
+	if (a->state == APP_ERROR || a->state == APP_RECONNECTING) {
+		open_current(a); /* e.g. the password was just fixed: retry now */
+	} else if (a->state != APP_HIDDEN) {
 		if (!found)
 			open_current(a); /* previous camera is gone: restart on the first one */
 		else if (a->opt.overlay_enabled)

@@ -34,11 +34,39 @@ version 0.1.0 is tagged. Nothing has been tagged yet.
 - Loopback RTSP test harness: live playback with Digest authentication, percent-encoded passwords, next/prev/show
   switching, failure paths (wrong password, refused connection), and no credentials in daemon output.
 
+### Verified with the owner's Dahua recorder
+
+- Five real channels (1-5) live in the overlay, above a true fullscreen window, with no focus change and no
+  credentials in logs, `ps`, `/proc/PID/cmdline` or status output.
+- Measured toggle to first picture: **about 0.8 s on the main stream**, about 2.7 s on the sub stream (the
+  recorder starts sub streams on demand). Camera switches about 0.8 s; cold daemon start + toggle 0.91 s.
+  While visible: about 2% of one CPU core, 3 Mbit/s, ~230 MB RSS; nothing runs while hidden.
+- 25 show/hide cycles plus a 6-minute continuous run: no failures, flat descriptors/threads/memory, clean exit.
+
+### Fixed after the 2026-11-08 reviews
+
+- Window loss while visible no longer leaves the app stuck; `toggle`/`show`/`next` re-create the overlay (F1).
+- A stream that delivers one frame and drops now exhausts the retry budget instead of looping forever (F2).
+- `reload` in `error`/`reconnecting` now retries the stream (F9).
+- CONNECTING has a timeout that does not depend on render callbacks; `MPV_EVENT_SHUTDOWN` is handled (F5/F6).
+- Redaction: invalid UTF-8 can no longer bypass the URL rule; `Authorization:` headers and Basic base64
+  credentials are removed; credentials in `url =` overrides are registered; trace mode requires exactly `1` or
+  `trace` (S1/S2/S3). Control characters are stripped from log lines (S7).
+- The daemon sets `RLIMIT_CORE=0`; the auto-spawn log is opened with `O_NOFOLLOW` and forced to 0600 (S4/S6).
+- `--socket` refuses to remove a path that is not a socket (S8/F4); concurrent control connections are capped
+  at 8 (S9); test backoff scaling is clamped (S12).
+- Build uses `-D_FORTIFY_SOURCE=2 -fstack-protector-strong`; test suite now covers the new failure paths.
+
 ### Known issues and not yet done
 
-- The real Dahua camera has not been tested. Real camera validation is pending.
-- Settings accepted but not implemented yet: `start_hidden`, `preview_snapshot`, `preload_next`, `opacity`.
-- Performance cost of the overlay for fullscreen games (direct scanout) has not been measured.
-- Only Hyprland has been tested as a compositor.
-- The `--version` string still reads `0.1.0-m2`, a leftover from the headless milestone.
+- Rapid camera commands are not coalesced (F3); hundreds per second can block the UI.
+- Error classification still uses substring matching (F7).
+- SIGHUP is not handled (F10); the stale-socket recovery covers the normal consequence.
+- `CCTV_OVERLAY_MPV_OPTS` can set arbitrary libmpv options (F11, developer-only, same-UID).
+- Credentials in a `url =` override are registered but still stored in the config object (F12).
+- Plain RTSP is unencrypted; no `rtsps://` support (S5). Secrets file mode is advisory (S11).
+- The systemd unit has not been run live (S13).
+- Physical click-through, monitor unplug, and the frame-rate cost of losing direct scanout in a game have not
+  been tested by hand.
+- Only Hyprland has been tested.
 - Licence not yet decided.

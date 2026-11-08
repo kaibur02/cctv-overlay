@@ -167,3 +167,11 @@ Rules: the lead hands `src/app.c` between owners explicitly; no concurrent edits
 
 Wave 0 is complete. No specialist has been launched. The next action is the user's go-ahead for Wave 1,
 which is document research only and changes no system state.
+
+## 10. Execution outcome (2026-11-08)
+
+All waves completed. Research and spike products are committed under `spike/` or reported in
+`.agent-work/reports/`; M2-M4 and docs/packaging were implemented by Sonnet/Haiku subagents and independently
+re-verified by the lead. Both reviews (security and lifecycle) were completed and their reports now include a
+**Resolution** table. High-value findings were fixed with regression tests; the remaining items (F3, F7, F10-F12,
+S5, S11, S13) are documented in `ARCHITECTURE.md` §13 and the handoff rather than rushed. No subagent is running.

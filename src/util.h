@@ -3,7 +3,7 @@
 
 #include <glib.h>
 
-#define CCTV_VERSION "0.1.0-m2"
+#define CCTV_VERSION "0.1.0"
 
 /* RFC 3986 percent-encoding: everything except unreserved (A-Za-z0-9-._~) is encoded. */
 char *util_pct_encode(const char *s);

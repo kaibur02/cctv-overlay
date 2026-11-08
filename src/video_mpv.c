@@ -132,12 +132,17 @@ static gboolean watchdog_cb(gpointer data)
 		V.watchdog = 0;
 		return G_SOURCE_REMOVE;
 	}
-	gint64 limit = V.first_reported ? STALL_LIVE_MS : STALL_CONNECT_MS;
-	gint64 idle = util_monotonic_ms() - V.last_frame_ms;
-	if (idle > limit) {
+	gint64 now = util_monotonic_ms();
+	/* CONNECTING must time out from the start time, not from mpv update callbacks: a compositor that
+	 * never gives us a frame callback would otherwise keep resetting last_frame_ms forever. */
+	if (!V.first_reported && now - V.start_ms > STALL_CONNECT_MS) {
 		V.watchdog = 0;
-		report_error(V.first_reported ? "stream stalled (no video for 10 s)"
-					      : "no video received (timed out)");
+		report_error("no video received (timed out)");
+		return G_SOURCE_REMOVE;
+	}
+	if (V.first_reported && now - V.last_frame_ms > STALL_LIVE_MS) {
+		V.watchdog = 0;
+		report_error("stream stalled (no video for 10 s)");
 		return G_SOURCE_REMOVE;
 	}
 	return G_SOURCE_CONTINUE;
@@ -281,6 +286,9 @@ static gboolean drain_idle(gpointer data)
 				log_info("video: decoder '%s'", *(char **)p->data);
 			break;
 		}
+		case MPV_EVENT_SHUTDOWN:
+			report_error("video engine shut down");
+			return G_SOURCE_REMOVE;
 		case MPV_EVENT_END_FILE: {
 			mpv_event_end_file *ef = ev->data;
 			if (ef->reason == MPV_END_FILE_REASON_ERROR) {
@@ -470,7 +478,8 @@ guint video_start(const Config *cfg, VideoUrlBuilder build, void *build_user, co
 		return 0;
 	}
 	const char *trace_env = g_getenv("CCTV_OVERLAY_MPV_TRACE");
-	V.trace = trace_env != NULL;
+	/* Only the exact values 1 or trace enable this; "0" and "" must not. */
+	V.trace = trace_env && (strcmp(trace_env, "1") == 0 || strcmp(trace_env, "trace") == 0);
 	/* warn and above only; verbose output is forwarded solely in the explicit developer trace mode
 	 * (CCTV_OVERLAY_MPV_TRACE=1 -> "v", =trace -> "trace") */
 	mpv_request_log_messages(h, V.trace ? (g_strcmp0(trace_env, "trace") == 0 ? "trace" : "v") : "warn");

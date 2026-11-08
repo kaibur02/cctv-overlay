@@ -165,3 +165,16 @@ Two environment variables exist for diagnosis only; they are not part of the sta
   first keyframe arrived.
 - `CCTV_OVERLAY_MPV_OPTS="name=value;name=value"` sets extra libmpv options for A/B experiments, applied after the
   defaults.
+
+
+## Security notes
+
+- Plain `rtsp://` is unencrypted. Use a dedicated low-privilege recorder account and a trusted LAN. `rtsps://`
+  is not implemented.
+- The daemon disables core dumps (`RLIMIT_CORE=0`); the systemd unit also sets `LimitCORE=0`.
+- Treat any log from `CCTV_OVERLAY_MPV_TRACE=1|trace` as sensitive. The redactor removes URLs and
+  `Authorization:` headers, but verbose third-party output can contain other identifying data.
+- A per-camera `url =` override may contain credentials and is stored in the configuration object. Prefer
+  `secrets.ini`; the loader warns and registers such credentials for redaction.
+- The control socket is same-UID only; any process running as you can already read your secrets file, so the
+  socket has no separate token.

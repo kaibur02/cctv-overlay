@@ -51,6 +51,13 @@ ok()   { checks=$((checks+1)); echo "ok   - $1"; }
 fail() { checks=$((checks+1)); fails=$((fails+1)); echo "FAIL - $1"; }
 expect_eq() { if [ "$2" = "$3" ]; then ok "$1"; else fail "$1 (got '$2', want '$3')"; fi; }
 
+# A mistyped --socket must never delete a regular file (review finding S8/F4).
+printf 'do not delete me\n' > "$T/not-a-socket"
+"$BIN" --socket "$T/not-a-socket" --config "$CFG" daemon --no-overlay >/dev/null 2>&1
+rc=$?
+[ $rc -ne 0 ] && ok "daemon refuses a --socket path that is a regular file" || fail "regular-file socket accepted"
+[ "$(cat "$T/not-a-socket")" = "do not delete me" ] && ok "regular file at --socket is preserved" || fail "regular file was modified"
+
 C() { "$BIN" --config "$CFG" "$@"; }
 
 wait_for() { # wait_for <seconds> <cmd...>
@@ -82,7 +89,7 @@ expect_eq "socket mode 0600" "$(stat -c %a "$SOCK")" 600
 expect_eq "runtime dir mode 0700" "$(stat -c %a "$XDG_RUNTIME_DIR/cctv-overlay")" 700
 
 C --no-spawn ping; expect_eq "ping -> exit 0" $? 0
-expect_eq "version in reply" "$(C --no-spawn ping --json | jq -r .version)" "0.1.0-m2"
+expect_eq "version in reply" "$(C --no-spawn ping --json | jq -r .version)" "0.1.0"
 expect_eq "initial state hidden" "$(jq_status .state)" hidden
 expect_eq "initial visible false" "$(jq_status .visible)" false
 expect_eq "camera_count" "$(jq_status .camera_count)" 3

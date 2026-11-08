@@ -12,7 +12,8 @@ STUB ?=
 
 PKGS     := glib-2.0 gio-2.0 gio-unix-2.0 json-glib-1.0
 CFLAGS   ?= -O2
-CFLAGS   += -std=gnu11 -Wall -Wextra -Wformat=2 -Isrc $(shell pkg-config --cflags $(PKGS)) -MMD -MP
+CFLAGS   += -std=gnu11 -Wall -Wextra -Wformat=2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong \
+            -Isrc $(shell pkg-config --cflags $(PKGS)) -MMD -MP
 LDLIBS   := $(shell pkg-config --libs $(PKGS))
 
 # GTK/mpv part. gtk4-layer-shell MUST come first in the link line so it is loaded before libwayland

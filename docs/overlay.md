@@ -94,4 +94,5 @@ mpv scripts/config/ytdl/OSC disabled, terminal output off.
 3. A real recorder (Dahua) stream: auth, channel numbering, H.264/H.265 and key-frame wait.
 4. `monitor = focused` on a multi-monitor session (compositor dependent).
 5. Behaviour when the output is unplugged while visible: the window is destroyed by the compositor; the
-   engine reports `overlay surface was lost` and the app retries, but this path is untested.
+   engine reports `overlay surface was lost` and the app retries. The recovery path is covered by the stub test
+`/app/overlay-lost-while-live`; a real monitor unplug is still a manual check.

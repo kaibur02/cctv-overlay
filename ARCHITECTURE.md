@@ -1,7 +1,7 @@
 # Architecture — CCTV Overlay
 
-**Status:** proposed, pending the Milestone 1 spike. Decisions marked *provisional* are expected to be
-confirmed or changed by measured evidence, not preference.
+**Status:** implemented and validated on Hyprland 0.56.2 (M1-M4), with a real Dahua recorder. ADR-0001/0002
+are Accepted; the security/lifecycle review findings of 2026-11-08 are resolved or listed in §13.
 
 ## 1. Summary
 
@@ -300,15 +300,18 @@ readable, and names the exact file and mode in the warning.
   empty/absent password and comments explain the two-file model.
 - **No credentials in argv.** The daemon is started with a config path only; RTSP userinfo exists only in
   a heap string immediately before `loadfile`, then freed.
-- **No credentials in logs.** A central logger redacts `scheme://user:pass@` and any registered secret
-  substring before writing; mpv log messages are filtered and redacted; URL is never logged whole.
+- **No credentials in logs.** A central logger redacts `scheme://user:pass@`, `Authorization:` headers,
+  registered password forms (raw, percent-encoded and Basic base64) and credentials parsed from `url =`
+  overrides; control characters are stripped; mpv log messages are filtered and redacted. The developer
+  trace mode (`CCTV_OVERLAY_MPV_TRACE=1|trace`) is the exception to the normal log level and must be treated
+  as sensitive.
 - **No credentials in status/IPC.** `status` reports camera names, channels, host and state only.
 - **File modes.** Config dir 0700 if created by the app; secrets 0600; socket 0600; peer UID checked.
 - **No network exposure.** No TCP listener, no HTTP server, no cloud calls. The only outbound connections
   are to the configured recorder and its snapshot endpoint.
 - **No remote code.** No plugin loading, no shelling out with user data, no downloaded binaries.
-- **Crash dumps** may contain the URL; document `ulimit -c 0` or the user's coredump policy as a
-  hardening note rather than silently changing system settings.
+- **Crash dumps:** the daemon sets `RLIMIT_CORE=0` itself, and the systemd unit sets `LimitCORE=0`. The
+  password still exists in process memory while running (and briefly in mpv/GLib buffers); this is documented.
 - **IPC trust boundary:** same-UID only. Any process running as the user can already read the secrets file,
   so a token would add complexity without a real boundary.
 
@@ -392,3 +395,23 @@ Public ADRs live in `docs/adr/`:
 - `0003-control-interface.md` — Unix socket + CLI (**proposed**).
 
 They move to *Accepted* only after the M1 evidence is recorded in `.agent-work/TESTS.md`.
+
+## 13. Known limitations after the 2026-11-08 reviews
+
+Resolved: F1 (window loss), F2 (flapping-stream retry storm), F4/S8 (socket-file deletion), F5/F6 (connect
+timeout, mpv shutdown), F8 (trim timer), F9 (reload in error), S1/S2/S3 (redaction), S4 (core dumps), S6 (log
+file), S7 (control characters), S9 (connection cap), S10 (value echo), S12 (backoff clamp).
+
+Still open and deliberately documented rather than rushed:
+- **F3** rapid command coalescing (performance under abuse; tests exist for correctness, not storms).
+- **F7** heuristic error classification (cosmetic).
+- **F10** SIGHUP handling (stale socket is recovered by the next spawn).
+- **F11** `CCTV_OVERLAY_MPV_OPTS` accepts arbitrary mpv options (developer-only, same-UID).
+- **F12** credentials in a `url =` override are registered but still stored in the configuration object.
+- **S5** plaintext RTSP / no `rtsps://`; use a low-privilege account and a trusted LAN.
+- **S11** secrets-file mode is advisory, not enforced.
+- **S13** systemd unit sandboxing has not been run live.
+- Not measured: physical click-through, monitor unplug on real hardware, direct-scanout frame-rate cost in a
+  game, other compositors/GPUs.
+
+See `.agent-work/reports/2026-11-08-sec-review.md` and `2026-11-08-adv-review.md` for the original findings.

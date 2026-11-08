@@ -12,6 +12,9 @@ static GPtrArray *g_secrets; /* char*, sorted by descending length */
 static LogSink g_sink;
 static void *g_sink_user;
 static GRegex *g_url_re;
+static GRegex *g_auth_re;
+
+#define REDACTED_UNSAFE "[unredactable message]"
 
 void log_set_level(LogLevel level) { g_level = level; }
 LogLevel log_get_level(void) { return g_level; }
@@ -89,16 +92,39 @@ char *log_redact(const char *text)
 			cur = next;
 		}
 	}
+	/* G_REGEX_RAW so invalid UTF-8 (possible in logs from a hostile or buggy server) cannot make the
+	 * replacement fail open. On any failure we return a fixed string rather than the original. */
 	if (!g_url_re)
-		g_url_re = g_regex_new("([A-Za-z][A-Za-z0-9+.\\-]*://)[^/\\s\"']*@", 0, 0, NULL);
-	if (g_url_re) {
-		char *next = g_regex_replace(g_url_re, cur, -1, 0, "\\1***:***@", 0, NULL);
-		if (next) {
-			g_free(cur);
-			cur = next;
-		}
+		g_url_re = g_regex_new("([A-Za-z][A-Za-z0-9+.\\-]*://)[^@\\s\"']*@", G_REGEX_RAW, 0, NULL);
+	if (!g_auth_re)
+		g_auth_re = g_regex_new("(?i)(proxy-)?authorization:\\s*[^\\r\\n]+", G_REGEX_RAW, 0, NULL);
+	if (!g_url_re || !g_auth_re) {
+		g_free(cur);
+		return g_strdup(REDACTED_UNSAFE);
 	}
-	return cur;
+	char *next = g_regex_replace(g_url_re, cur, -1, 0, "\\1***:***@", 0, NULL);
+	if (!next) {
+		g_free(cur);
+		return g_strdup(REDACTED_UNSAFE);
+	}
+	g_free(cur);
+	cur = next;
+	next = g_regex_replace(g_auth_re, cur, -1, 0, "Authorization: ***", 0, NULL);
+	if (!next) {
+		g_free(cur);
+		return g_strdup(REDACTED_UNSAFE);
+	}
+	g_free(cur);
+	return next;
+}
+
+/* Keep log output single-line and free of terminal escape sequences. Bytes, not UTF-8. */
+static void strip_controls(char *s)
+{
+	for (unsigned char *p = (unsigned char *)s; p && *p; p++) {
+		if ((*p < 0x20 && *p != '\t') || *p == 0x7f)
+			*p = '?';
+	}
 }
 
 void log_set_sink(LogSink sink, void *user)
@@ -121,6 +147,7 @@ void log_msg(LogLevel level, const char *fmt, ...)
 
 	char *safe = log_redact(raw);
 	util_wipe_free(raw);
+	strip_controls(safe);
 
 	if (g_sink) {
 		g_sink(level, safe, g_sink_user);

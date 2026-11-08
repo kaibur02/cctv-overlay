@@ -26,6 +26,7 @@ static struct {
 	AppState state;
 	OverlayRenderFn render_fn;
 	void *render_user;
+	guint trim_src;
 } O;
 
 static const char *const STATE_CLASS[] = { "hidden", "connecting", "live", "reconnecting", "error" };
@@ -195,6 +196,10 @@ static void refresh_chip(void)
 
 void overlay_show(const Config *cfg, const char *label)
 {
+	if (O.trim_src) { /* cancel a pending malloc_trim from a recent hide */
+		g_source_remove(O.trim_src);
+		O.trim_src = 0;
+	}
 	if (O.win) {
 		overlay_set_label(label);
 		return;
@@ -304,6 +309,7 @@ void overlay_show(const Config *cfg, const char *label)
 static void trim_idle(gpointer data)
 {
 	(void)data;
+	O.trim_src = 0;
 	malloc_trim(0); /* hand freed pages (mpv, GL driver, GTK) back while the overlay is hidden */
 }
 
@@ -316,7 +322,9 @@ void overlay_hide(void)
 	O.win = O.gl = O.chip = O.dot = O.name = O.status = NULL;
 	gtk_window_destroy(GTK_WINDOW(w));
 	O.state = APP_HIDDEN;
-	g_timeout_add_once(300, trim_idle, NULL);
+	if (O.trim_src)
+		g_source_remove(O.trim_src);
+	O.trim_src = g_timeout_add_once(300, trim_idle, NULL);
 	log_debug("overlay: hidden");
 }
 

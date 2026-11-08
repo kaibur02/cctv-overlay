@@ -74,7 +74,7 @@ wait_state() { # wait_state <state> <seconds>
 }
 layer_ns() { hyprctl layers -j | jq -r --arg m "$MON" '[.[$m].levels|to_entries[]|.value[]|select(.namespace=="cctv-overlay")]|length'; }
 layer_level() { hyprctl layers -j | jq -r --arg m "$MON" '[.[$m].levels|to_entries[]|select(.value|map(.namespace)|index("cctv-overlay"))|.key]|first // "none"'; }
-clients_with_overlay() { hyprctl clients -j | jq '[.[]|select((.class+.title)|test("cctv";"i"))]|length'; }
+clients_with_overlay() { hyprctl clients -j | jq '[.[]|select(.class|test("^cctv-overlay$";"i"))]|length'; }
 pfd() { ls "/proc/$DPID/fd" | wc -l; }
 pthr() { ls "/proc/$DPID/task" | wc -l; }
 prss() { awk '/VmRSS/{print $2}' "/proc/$DPID/status"; }
@@ -113,10 +113,11 @@ import sys
 d = open(sys.argv[1], "rb").read()
 parts = d.split(None, 4)
 w, h = int(parts[1]), int(parts[2]); px = parts[4][-w*h*3:]
-colourful = sum(1 for i in range(0, len(px), 3) if max(px[i:i+3]) - min(px[i:i+3]) > 80)
-quant = {(px[i] >> 5, px[i+1] >> 5, px[i+2] >> 5) for i in range(0, len(px), 3)}
-magenta = sum(1 for i in range(0, len(px), 3) if px[i] > 200 and px[i+1] < 60 and px[i+2] > 200)
+px = px[:len(px) // 3 * 3]  # grim's PPM can be a byte short; never index past the end
 n = w*h
+colourful = sum(1 for i in range(0, len(px), 3) if max(px[i:i+3]) - min(px[i:i+3]) > 80)
+quant = {(px[i] >> 5, px[i+1] >> 5, px[i+2] >> 5) for i in range(0, len(px) - 2, 3)}
+magenta = sum(1 for i in range(0, len(px) - 2, 3) if px[i] > 200 and px[i+1] < 60 and px[i+2] > 200)
 print(f"shot {w}x{h}: colourful={colourful/n:.2f} distinct={len(quant)} magenta={magenta/n:.2f}")
 sys.exit(0 if colourful/n > 0.15 and len(quant) >= 8 and magenta/n < 0.5 else 1)
 PY

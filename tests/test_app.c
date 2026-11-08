@@ -9,6 +9,7 @@ gboolean video_stub_active(void);
 guint video_stub_start_count(void);
 gboolean overlay_stub_visible(void);
 const char *overlay_stub_label(void);
+void overlay_stub_simulate_lost(void);
 
 #define PW "p@ss:w/rd%1"
 
@@ -36,6 +37,8 @@ static App *make_app(const char *text, const char *password, gboolean overlay)
 	g_unsetenv("CCTV_OVERLAY_STUB_FAIL");
 	g_unsetenv("CCTV_OVERLAY_STUB_DROP_AFTER_MS");
 	g_setenv("CCTV_OVERLAY_STUB_DELAY_MS", "10", TRUE);
+	if (!g_getenv("CCTV_OVERLAY_LIVE_STABLE_MS"))
+		g_setenv("CCTV_OVERLAY_LIVE_STABLE_MS", "0", TRUE); /* unit tests: reset backoff at once */
 	if (password)
 		g_setenv("CCTV_OVERLAY_PASSWORD", password, TRUE);
 	log_set_sink(sink, NULL);
@@ -57,6 +60,7 @@ static void destroy(App *a)
 	log_clear_secrets();
 	g_unsetenv("CCTV_OVERLAY_PASSWORD");
 	g_unsetenv("CCTV_OVERLAY_STUB_FAIL");
+	g_unsetenv("CCTV_OVERLAY_LIVE_STABLE_MS");
 	tl_rm_dir(g_dir);
 	g_free(g_path);
 }
@@ -220,6 +224,51 @@ static void test_live_drop_reconnects(void)
 	destroy(a);
 }
 
+static void test_overlay_lost_while_live_recovers(void)
+{
+	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	g_assert_true(app_toggle(a, NULL));
+	g_assert_true(wait_state(a, APP_LIVE, 1000));
+
+	overlay_stub_simulate_lost(); /* compositor destroyed the layer surface */
+	g_assert_false(overlay_stub_visible());
+
+	g_assert_true(app_next(a, NULL));
+	g_assert_cmpint(app_state(a), ==, APP_CONNECTING);
+	g_assert_true(overlay_stub_visible()); /* re-created instead of staying stuck */
+	g_assert_cmpstr(overlay_stub_label(), ==, "Driveway");
+	g_assert_true(wait_state(a, APP_LIVE, 1000));
+	destroy(a);
+}
+
+static void test_flapping_stream_reaches_error(void)
+{
+	g_setenv("CCTV_OVERLAY_LIVE_STABLE_MS", "1000", TRUE);
+	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	g_setenv("CCTV_OVERLAY_STUB_DELAY_MS", "10", TRUE);
+	g_setenv("CCTV_OVERLAY_STUB_DROP_AFTER_MS", "10", TRUE);
+	guint starts_before = video_stub_start_count();
+	app_toggle(a, NULL);
+	g_assert_true(wait_state(a, APP_ERROR, 8000)); /* one frame per connection must not loop forever */
+	g_assert_cmpuint(app_retry_count(a), ==, APP_MAX_RETRIES);
+	g_assert_cmpuint(video_stub_start_count() - starts_before, <=, 1 + APP_MAX_RETRIES);
+	destroy(a);
+	g_unsetenv("CCTV_OVERLAY_STUB_DROP_AFTER_MS");
+}
+
+static void test_reload_in_error_retries(void)
+{
+	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	g_setenv("CCTV_OVERLAY_STUB_FAIL", "1", TRUE);
+	app_toggle(a, NULL);
+	g_assert_true(wait_state(a, APP_ERROR, 5000));
+	g_unsetenv("CCTV_OVERLAY_STUB_FAIL");
+	g_assert_true(app_reload(a, NULL)); /* e.g. the password was fixed */
+	g_assert_cmpint(app_state(a), ==, APP_CONNECTING);
+	g_assert_true(wait_state(a, APP_LIVE, 2000));
+	destroy(a);
+}
+
 static void test_missing_password_only_when_streaming(void)
 {
 	App *a = make_app(TL_GOOD_CONFIG, NULL, TRUE); /* no password anywhere */
@@ -325,6 +374,9 @@ int main(int argc, char **argv)
 	g_test_add_func("/app/recovery-resets-backoff", test_recovery_resets_backoff);
 	g_test_add_func("/app/reconnect-disabled", test_reconnect_disabled);
 	g_test_add_func("/app/live-drop-reconnects", test_live_drop_reconnects);
+	g_test_add_func("/app/overlay-lost-while-live", test_overlay_lost_while_live_recovers);
+	g_test_add_func("/app/flapping-stream-bounded", test_flapping_stream_reaches_error);
+	g_test_add_func("/app/reload-in-error", test_reload_in_error_retries);
 	g_test_add_func("/app/missing-password", test_missing_password_only_when_streaming);
 	g_test_add_func("/app/reload", test_reload);
 	g_test_add_func("/app/reload-hidden", test_reload_hidden_keeps_hidden);
