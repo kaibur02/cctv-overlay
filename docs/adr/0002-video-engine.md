@@ -1,6 +1,6 @@
 # ADR-0002: Use libmpv's render API inside GTK4
 
-- **Status:** Proposed — pending Milestone 1 evidence
+- **Status:** Accepted (M1 evidence 2026-11-08: libmpv render API into GtkGLArea inside a layer-shell window, hwdec=vaapi for H.264 and HEVC, correct orientation/colour, ~38 ms local first frame, clean teardown; real RTSP latency still to be measured)
 - **Date:** 2026-11-08
 - **Deciders:** project lead
 - **Related:** ARCHITECTURE.md §2.2, §3.3

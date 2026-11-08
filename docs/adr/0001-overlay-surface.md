@@ -1,6 +1,6 @@
 # ADR-0001: Use wlr-layer-shell for the overlay surface
 
-- **Status:** Proposed — pending Milestone 1 evidence
+- **Status:** Accepted (M1 evidence 2026-11-08: overlay layer visible over true fullscreen/maximized/tiled on Hyprland 0.56.2; no focus change; typing reaches the fullscreen app; empty input region delivers no pointer events; layer must be OVERLAY not TOP; gtk4-layer-shell must load before libwayland)
 - **Date:** 2026-11-08
 - **Deciders:** project lead, owner
 - **Related:** ARCHITECTURE.md §2.1, `.agent-work/TESTS.md`
