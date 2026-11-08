@@ -1,0 +1,35 @@
+# Build artefacts
+build/
+*.o
+*.d
+*.a
+*.so
+/cctv-overlay
+
+# Local configuration and secrets — NEVER commit
+config.ini
+secrets.ini
+*.local.ini
+.env
+.env.*
+dev/
+
+# Runtime artefacts
+*.log
+*.pid
+*.sock
+*.core
+core
+
+# Test output
+test-output/
+coverage/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Internal project memory and agent reports (not part of a public release)
+.agent-work/
