@@ -112,6 +112,10 @@ See §7 for the schema.
   - log level `warn`, no terminal output, no URL logging
 - Events on the mpv thread are marshalled to the GTK main loop with `g_idle_add`; the render update
   callback only schedules a redraw.
+- Render context creation passes `MPV_RENDER_PARAM_OPENGL_INIT_PARAMS` (GL proc address callback from the
+  GTK context) and `MPV_RENDER_PARAM_WL_DISPLAY` (the GDK Wayland display) so VA-API/DMABUF interop can
+  work; the FBO is obtained with `glGetIntegerv(GL_FRAMEBUFFER_BINDING)` inside `GtkGLArea::render`.
+  `MPV_RENDER_PARAM_ADVANCED_CONTROL` is a later optimisation, not part of the first working path.
 - First frame = first successful `mpv_render_context_render` after `loadfile`; timestamp recorded.
 - Stop path: `mpv_command("stop")` → `mpv_render_context_free` → `mpv_terminate_destroy` (joins the
   thread) → clear FBO/texture state. No player survives `hide`.
