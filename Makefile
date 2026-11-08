@@ -92,6 +92,9 @@ install: $(BIN)
 	install -Dm644 docs/configuration.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/configuration.md
 	install -Dm644 docs/hyprland.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland.md
 	install -Dm644 docs/troubleshooting.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/troubleshooting.md
+	install -Dm644 docs/requirements.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/requirements.md
+	install -Dm644 docs/ai-install.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/ai-install.md
+	install -Dm644 examples/install.answers.example $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/install.answers.example
 	install -Dm644 integrations/hyprland/example.lua $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland/example.lua
 	install -Dm644 integrations/hyprland/example.conf $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland/example.conf
 	install -Dm644 packaging/cctv-overlay.service $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/cctv-overlay.service

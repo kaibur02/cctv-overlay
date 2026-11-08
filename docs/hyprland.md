@@ -1,7 +1,20 @@
 # Hyprland integration
 
-cctv-overlay does not bind keys and does not edit your compositor configuration. You bind the commands
-yourself. Two optional snippets show the syntax:
+The program itself never binds keys. `./install.sh` asks which keys you want and writes them into a marked
+block in your Hyprland config (after a timestamped backup), in the format your setup uses:
+
+| Your config | Installer writes |
+|---|---|
+| Omarchy `~/.config/hypr/bindings.lua` | `o.bind("CTRL + KP_Multiply", "Toggle CCTV overlay", "…/cctv-overlay toggle")` |
+| Lua `~/.config/hypr/hyprland.lua` (0.55+) | `hl.bind("CTRL + KP_Multiply", hl.dsp.exec_cmd("…/cctv-overlay toggle"))` |
+| Omarchy (older) `~/.config/hypr/bindings.conf` | `bindd = CTRL, KP_Multiply, Toggle CCTV overlay, exec, …/cctv-overlay toggle` |
+| `~/.config/hypr/hyprland.conf` | `bind = CTRL, KP_Multiply, exec, …/cctv-overlay toggle` |
+
+The block starts with `>>> cctv-overlay keybindings >>>` and ends with `<<< cctv-overlay keybindings <<<`.
+Re-running the installer replaces it; `./install.sh --uninstall` removes it. If Hyprland reports a new config
+error after the change, the installer restores the backup by itself.
+
+To bind by hand instead, two optional snippets show the syntax:
 
 | File | For |
 |---|---|
@@ -16,9 +29,11 @@ included by anything in this project.
 
 | Action | Command |
 |---|---|
-| Show or hide the overlay | `cctv-overlay toggle` |
-| Next camera | `cctv-overlay next` |
-| Previous camera | `cctv-overlay prev` |
+| Show or hide the overlay (opens on the grid) | `cctv-overlay toggle` |
+| Next view (grid → cameras → grid) | `cctv-overlay next` |
+| Previous view | `cctv-overlay prev` |
+| Camera audio on/off | `cctv-overlay audio` |
+| Grid view | `cctv-overlay grid` |
 | Open on a specific camera | `cctv-overlay show "Front Door"` (name, id, or zero-based index) |
 | Close the overlay | `cctv-overlay hide` |
 
@@ -107,10 +122,13 @@ never edit Omarchy's own files). This pair is in daily use on Hyprland 0.56.2 / 
 
 ```lua
 o.bind("CTRL + KP_Multiply", "Toggle CCTV overlay", "/home/YOU/.local/bin/cctv-overlay toggle")
-o.bind("KP_Multiply", "Next CCTV camera", "/home/YOU/.local/bin/cctv-overlay next")
+o.bind("KP_Multiply", "Next CCTV view", "/home/YOU/.local/bin/cctv-overlay next")
+o.bind("KP_Divide", "Previous CCTV view", "/home/YOU/.local/bin/cctv-overlay prev")
+o.bind("CTRL + KP_Subtract", "Toggle CCTV audio", "/home/YOU/.local/bin/cctv-overlay audio")
 ```
 
-- `KP_Multiply` is the numpad asterisk (works with NumLock on or off); the `*` on the main row is a different key.
+- `KP_Multiply`, `KP_Divide` and `KP_Subtract` are the numpad `*`, `/` and `-` (they work with NumLock on or
+  off); the keys on the main row are different keys.
 - A binding without a modifier takes that key away from all applications while Hyprland runs.
 - Use an absolute path: Hyprland may not have `~/.local/bin` on the `PATH` it launches commands with.
 - The daemon starts automatically on the first command, and an auto-started daemon logs (redacted) to

@@ -1,8 +1,8 @@
 # CCTV Overlay for Linux
 
-A lightweight, self-contained Linux daemon that shows a live Dahua/RTSP camera feed in a small,
-click-through picture-in-picture overlay above your desktop, including over fullscreen windows on
-compositors that allow it.
+A lightweight, self-contained Linux daemon that shows live CCTV/RTSP cameras (a 4-camera grid, or one camera
+at a time) in a small, click-through picture-in-picture overlay above your desktop, including over fullscreen
+windows on compositors that allow it.
 
 > **Status: working and validated with a real Dahua NVR on Hyprland; pre-release (0.1.0 not yet tagged).**
 > - Verified on Hyprland 0.56.2 (Arch Linux, AMD GPU with VA-API): five real camera channels, live video over a
@@ -10,58 +10,59 @@ compositors that allow it.
 >   released when hidden. Physical mouse click-through is still to be confirmed by hand.
 > - With this recorder the **main stream** opens in about 0.8 s (the sub stream took about 2.7 s because the
 >   recorder starts it on demand); the stream type is configurable per camera. Nothing runs while hidden.
-> - A security and a lifecycle review have been completed. Their findings are listed under
->   [Known limitations](#known-limitations) and in the changelog; the highest-priority fixes are not yet applied.
+> - Grid view verified on the same recorder: four main streams live at once, each with VA-API decode.
+> - A security and a lifecycle review have been completed; the high-priority fixes are applied, and the
+>   deferred items are listed under [Known limitations](#known-limitations).
 > - Other compositors and GPUs are untested. The licence is not decided yet (see below).
 
 ## What it does
 
-- **Toggle** the overlay with one command: `cctv-overlay toggle`. You bind the key yourself.
-- **Cycle** cameras with `cctv-overlay next` and `prev`, wrapping around the configured list.
+- **Toggle** the overlay with one key (`cctv-overlay toggle`). It always opens on a **grid of the first four
+  cameras** in one frame.
+- **Cycle** with `next` / `prev`: grid → camera 1 → … → last camera → grid, wrapping both ways.
+- **Audio on/off** with `cctv-overlay audio`; a small speaker icon shows in the corner while sound is on.
+- Works with **Dahua/Amcrest/Lorex, Hikvision/HiLook/Annke, Reolink, Uniview** recorders, separate IP cameras
+  (incl. TP-Link Tapo), or any RTSP path template.
 - Show video in the **layer-shell `overlay` layer**, above normal windows and fullscreen content.
 - **Never take keyboard focus**; the overlay is built to pass pointer input through to the window below
   (empty input region; physical click test pending).
-- Decode the camera stream with VA-API hardware decoding and a low-latency libmpv profile. Sub stream is the
-  default for bandwidth; the main stream can start much faster on recorders that start sub streams on demand.
+- Decode with VA-API hardware decoding and a low-latency libmpv profile; each grid tile is its own stream that
+  reconnects independently.
 - **Release everything when hidden**: no player, no RTSP connection and no GPU surface while the overlay is closed.
-- Keep credentials out of config files in the repository, out of logs and out of command lines.
+- Keep credentials out of config files, logs and command lines.
 - Run as a user-level daemon with a local Unix-socket control interface. It has no network listener.
 
-## Quick start
+## Install
 
-Full instructions: [`docs/install.md`](docs/install.md).
+Requirements: Linux, a Wayland compositor with layer-shell (Hyprland/Omarchy tested), GTK 4.12+,
+gtk4-layer-shell, libmpv. Full list: [`docs/requirements.md`](docs/requirements.md).
 
 ```sh
-# 1. Build (Arch: sudo pacman -S --needed base-devel pkgconf glib2 json-glib libepoxy gtk4 gtk4-layer-shell mpv)
 git clone <repository-url> cctv-overlay && cd cctv-overlay
-make
-
-# 2. Install without root (or see docs/install.md for a system-wide install)
-make PREFIX="$HOME/.local" install
-
-# 3. Create your config and secrets (never overwrites existing files)
-mkdir -p ~/.config/cctv-overlay
-cp -n ~/.local/share/doc/cctv-overlay/config.example.ini ~/.config/cctv-overlay/config.ini
-( umask 077 && cp -n ~/.local/share/doc/cctv-overlay/secrets.example.ini ~/.config/cctv-overlay/secrets.ini )
-$EDITOR ~/.config/cctv-overlay/config.ini ~/.config/cctv-overlay/secrets.ini   # set host, channels, password
-
-# 4. Run (in a terminal, to see logs)
-cctv-overlay daemon
-
-# 5. In another terminal, or from a key binding you choose
-cctv-overlay toggle
+./install.sh
 ```
 
-Key bindings are not chosen for you. Placeholder examples for Hyprland are in
-[`docs/hyprland.md`](docs/hyprland.md) and [`integrations/hyprland/`](integrations/hyprland/).
+The installer checks requirements, builds, installs to `~/.local/bin`, asks which camera system you have, how
+many cameras and their names, the monitor, and the keys for show/hide, next, previous and audio, then writes
+your Hyprland binds and asks for the password in a hidden prompt (stored only in `secrets.ini`, mode 0600).
+Re-running it keeps your existing setup unless you choose otherwise.
+
+**Installing with an AI assistant?** Give it [`docs/ai-install.md`](docs/ai-install.md). It asks you the
+questions in chat, installs unattended, and leaves only the password for you to type
+(`! ./install.sh --set-password` in Claude Code).
+
+Manual build and install: [`docs/install.md`](docs/install.md).
 
 ## Commands
 
 | Command | Effect |
 |---|---|
 | `cctv-overlay daemon` | Run the daemon in the foreground |
-| `cctv-overlay toggle` | Show or hide the overlay |
-| `cctv-overlay next` / `prev` | Next or previous camera (opens the overlay if hidden) |
+| `cctv-overlay toggle` | Show or hide the overlay (opens on the grid) |
+| `cctv-overlay next` / `prev` | Next or previous view: grid → cameras → grid (opens the overlay if hidden) |
+| `cctv-overlay grid` | Switch to the 4-camera grid |
+| `cctv-overlay audio [on\|off]` | Toggle camera audio (speaker icon while on) |
+| `cctv-overlay check` | Validate config and secrets offline (prints no secrets) |
 | `cctv-overlay show [CAMERA]` | Open on a camera (name, id or zero-based index) |
 | `cctv-overlay hide` | Close the overlay and release all resources |
 | `cctv-overlay status [--json]` | State, camera, last error (never credentials or URLs) |
@@ -92,12 +93,16 @@ Exit codes and details: [`docs/behaviour.md`](docs/behaviour.md).
 - Only Hyprland has been tested. GNOME and X11 are not supported; other Wayland compositors are untested.
 - The systemd unit's sandboxing has not been exercised in a live user session.
 - `start_hidden`, `preview_snapshot`, `preload_next` and `opacity` are accepted but not implemented.
+- The grid decodes four streams at once: without VA-API this costs noticeable CPU; with main streams it uses about
+  four times one camera's bandwidth (`[grid] subtype = 1` uses sub streams for the grid only).
 
 ## Documentation
 
 | Document | For |
 |---|---|
-| [`docs/install.md`](docs/install.md) | Dependencies, build, install, systemd user unit |
+| [`docs/requirements.md`](docs/requirements.md) | Minimum requirements, compositors, camera systems |
+| [`docs/ai-install.md`](docs/ai-install.md) | Step-by-step install for an AI assistant (password stays with you) |
+| [`docs/install.md`](docs/install.md) | Installer modes, manual build/install, systemd user unit |
 | [`docs/configuration.md`](docs/configuration.md) | Every config key, secrets file, example |
 | [`docs/hyprland.md`](docs/hyprland.md) | Binding commands in Hyprland, layer behaviour |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and how to read the logs |
@@ -109,7 +114,7 @@ Exit codes and details: [`docs/behaviour.md`](docs/behaviour.md).
 
 ## Architecture
 
-One daemon owns one GTK 4 layer-shell window and one libmpv player. The window uses an empty input region
+One daemon owns one GTK 4 layer-shell window and up to four libmpv players (one per grid tile). The window uses an empty input region
 and keyboard mode `none`, so it is click-through and never takes focus. Video renders through libmpv's OpenGL
 render API into a `GtkGLArea`, decoded with VA-API. A thin CLI sends one JSON line per request over a Unix
 socket in `$XDG_RUNTIME_DIR`. Details and trade-offs are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -122,12 +127,14 @@ socket in `$XDG_RUNTIME_DIR`. Details and trade-offs are in [`ARCHITECTURE.md`](
 - **Layer `overlay` only by default.** On Hyprland 0.56 a `top` layer is hidden under fullscreen windows.
 - **Scanout cost.** While the overlay is visible, direct scanout of a fullscreen window on that monitor is off.
   The effect on game performance has not been measured yet.
-- **Real camera not yet tested.** Use the loopback test harness (`make check-real`) to check your setup first.
-- **Recorder support is Dahua-style RTSP only.** The URL builder uses the Dahua path and channel scheme. Other
-  cameras need a `url` override, which puts the credentials in the config file (discouraged).
+- **One set of credentials.** All cameras share one user name and password; cameras with different
+  credentials need a `url` override, which puts the password in the config file (discouraged).
+- **Presets other than Dahua are untested on real hardware.** The Hikvision/Reolink/Uniview/Tapo paths follow
+  the vendors' documented RTSP formats; `path` templates let you adjust them.
 - **Some settings are accepted but not used yet:** `start_hidden`, `preview_snapshot`, `preload_next` and
   `opacity`. See [`docs/configuration.md`](docs/configuration.md).
-- **No audio.** Video only, by design.
+- **Audio is single-camera only.** The grid never plays sound. Enabling audio makes mpv sync video to the audio
+  clock, which may add a little latency on some cameras.
 - **No recording, snapshots to disk, motion alerts or PTZ.** Out of scope for 0.1.
 - **Password in memory.** The daemon keeps the recorder password in process memory while it runs, so a core
   dump could contain it.

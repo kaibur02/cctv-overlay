@@ -7,8 +7,10 @@ cctv-overlay uses two INI files in one directory, `~/.config/cctv-overlay/` (or 
 | `config.ini` | Layout, stream and recorder settings, camera list. **No secrets.** | normal (`0644` or `0600`) |
 | `secrets.ini` | Recorder password, optionally username | **`0600`** |
 
-Templates are in `examples/` in the source tree and under `/usr/share/doc/cctv-overlay/` after a package
-install. Copy them; the program never writes these files for you (see [`install.md`](install.md)).
+The easiest way to create both is `./install.sh` (it asks about your camera system, cameras, monitor and keys,
+and reads the password with a hidden prompt). Templates are also in `examples/` in the source tree and under
+`/usr/share/doc/cctv-overlay/` after a package install. The program itself never writes these files.
+`cctv-overlay check` validates both files offline and never prints the password.
 
 Syntax rules (GKeyFile):
 
@@ -68,6 +70,7 @@ window on the same monitor while it is shown (see [limitations](../README.md#lim
 | `subtype` | `1` | `0`–`3` | Default Dahua stream: `0` = main, `1` = sub stream. Overridable per camera. |
 | `hwdec` | `vaapi` | `vaapi`, `vaapi-copy`, `auto-safe`, `no` | Hardware decode. `vaapi` falls back to software when the hardware path is unusable. |
 | `reconnect` | `true` | boolean | Retry with backoff after an error or stall. |
+| `audio` | `false` | boolean | Camera audio when the daemon starts. Toggled at runtime with `cctv-overlay audio` (or `audio on`/`off`); a speaker icon shows while it is on. Only the single-camera view plays audio. The camera's audio must be enabled in the recorder's encoding settings. |
 | `preview_snapshot` | `true` | boolean | Accepted but has no effect yet (no snapshot preview in this build). |
 | `preload_next` | `false` | boolean | Accepted but has no effect yet (no preloading). |
 
@@ -78,9 +81,31 @@ window on the same monitor while it is shown (see [limitations](../README.md#lim
 | `host` | *(none, required)* | Recorder address, for example `192.168.1.100`. Required unless every camera has a `url`. |
 | `port` | `554` | RTSP port, 1–65535. |
 | `username` | *(empty)* | Recorder user. Prefer `secrets.ini` or `CCTV_OVERLAY_USERNAME`. |
-| `path` | `/cam/realmonitor` | RTSP path used by the Dahua URL builder. |
+| `path` | `/cam/realmonitor` | RTSP path. Without `{placeholders}` (the default) the Dahua query `?channel=N&subtype=S` is appended. With placeholders it is a template, see below. |
 
 The **password is not a key here.** It is rejected in `config.ini`. Put it in `secrets.ini` (see below).
+
+#### URL templates (other camera systems)
+
+The stream URL is `rtsp://USER:PASSWORD@host:port` + the expanded `path`. Credentials are always inserted by the
+program from `secrets.ini`; they never appear in `config.ini`. Placeholders:
+
+| Placeholder | Value |
+|---|---|
+| `{channel}` | camera channel (`3`) |
+| `{channel02}` | channel with two digits (`03`) |
+| `{subtype}` | `0` main stream, `1` sub stream |
+| `{stream}` | `1` main stream, `2` sub stream |
+| `{mainsub}` | `main` or `sub` |
+
+| System | `path` |
+|---|---|
+| Dahua, Amcrest, Lorex | `/cam/realmonitor` (default) |
+| Hikvision, HiLook, Annke NVR | `/Streaming/Channels/{channel}0{stream}` |
+| Reolink NVR | `/h264Preview_{channel02}_{mainsub}` |
+| Uniview NVR | `/unicast/c{channel}/s{subtype}/live` |
+
+Unknown placeholders are configuration errors.
 
 ### `[camera.<id>]`
 
@@ -92,6 +117,9 @@ One section per camera. `<id>` is a short identifier you choose (letters, digits
 | `name` | yes | Display name, unique (case-insensitive). Used by `show <name>`. |
 | `channel` | yes, unless `url` is set | Dahua channel number, starting at 1. Check it on your recorder; do not assume channels exist. |
 | `subtype` | no | Overrides `[stream] subtype` for this camera. |
+| `host` | no | This camera's own address (separate IP cameras without a recorder). Overrides `[recorder] host`. |
+| `port` | no | This camera's RTSP port. Overrides `[recorder] port`. |
+| `path` | no | This camera's RTSP path, used **literally** (no Dahua query is appended); placeholders allowed. With `path` set, `channel` is optional. Examples: Hikvision camera `/Streaming/Channels/10{stream}`, Reolink `/h264Preview_01_{mainsub}`, TP-Link Tapo `/stream{stream}`, Dahua/Amcrest camera `/cam/realmonitor?channel=1&subtype={subtype}`. |
 | `url` | no | Full `rtsp://` URL. Bypasses the recorder builder. **Discouraged**: the URL would contain the password. Use only for non-secret sources. |
 
 Example (the `url` form is shown commented out):
@@ -106,6 +134,34 @@ name = Driveway
 channel = 2
 subtype = 0
 ```
+
+Separate IP cameras (no recorder), sharing one user name and password:
+
+```ini
+[recorder]
+username = viewer
+
+[camera.porch]
+name = Porch
+host = 192.168.1.21
+path = /Streaming/Channels/10{stream}
+```
+
+### `[grid]`
+
+The grid (overview) view shows up to four cameras in a 2×2 layout. When it is available it is the view
+`toggle` always opens on, and `next`/`prev` cycle **grid → camera 1 → … → camera N → grid** (both ways,
+wrapping). Each tile is its own stream with its own reconnect logic, so one offline camera does not affect the
+others; the overlay state is `live` while any tile is live.
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | `true` | `false` restores the plain camera ring (toggle opens the current camera). The grid also needs at least 2 cameras. |
+| `cameras` | first four | Comma-separated camera ids or names, 2–4, in tile order (top-left, top-right, bottom-left, bottom-right). |
+| `subtype` | per camera | Stream for the grid tiles, e.g. `1` to use the lighter sub streams for the overview only. |
+
+The grid never plays audio. Four streams decode at once, so VA-API is strongly recommended; with the main stream
+expect roughly four times the bandwidth of one camera.
 
 ## `secrets.ini`
 

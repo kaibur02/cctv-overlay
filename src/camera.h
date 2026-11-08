@@ -27,6 +27,7 @@ gboolean camera_list_find_id(const CameraList *l, const char *id, guint *index);
 /* Build the stream URL into a new heap string. The caller MUST release it with util_wipe_free().
  * Fails (without leaking details) when username/password are missing. The URL, or any part of
  * it, is never stored or put into an error message. */
-char *camera_resolve_url(const Config *cfg, const Camera *cam, GError **err);
+char *camera_resolve_url(const Config *cfg, const Camera *cam, int subtype_override /* -1 = none */,
+			 GError **err);
 
 #endif

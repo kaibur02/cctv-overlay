@@ -35,6 +35,8 @@ channel = 2
 [camera.garden]
 name = Garden
 channel = 3
+[grid]
+enabled = false
 CFGEOF
 printf '[recorder]\npassword = %s\n' "$PW" > "$T/cfg/secrets.ini"
 chmod 600 "$T/cfg/secrets.ini"
@@ -227,6 +229,31 @@ expect_eq "second client reuses it" "$(C --no-spawn status --json | jq -r .camer
 pgrep -f "cctv-overlay daemon --config $CFG" >/dev/null && ok "daemon argv has config path only" || fail "spawned daemon not found"
 C --no-spawn quit >/dev/null
 wait_for 3 spawned_gone; expect_eq "auto-spawned daemon quit" $? 0
+
+# ---------- grid view, cycle ring and audio (separate config with the grid enabled) ----------
+GCFG="$T/cfg/grid.ini"
+sed '/^\[grid\]/,$d' "$CFG" > "$GCFG"
+G() { "$BIN" --config "$GCFG" --no-spawn "$@"; }
+gst() { G status --json | jq -r "$1"; }
+"$BIN" daemon --config "$GCFG" >"$T/outg.log" 2>"$T/errg.log" &
+DPID=$!
+wait_for 3 sock_exists
+G toggle >/dev/null
+expect_eq "toggle opens the grid view" "$(gst .view)" grid
+expect_eq "grid has one tile per camera (max 4)" "$(gst '.tiles|length')" 3
+G next >/dev/null; expect_eq "next from grid -> first camera" "$(gst .camera)" "Front Door"
+expect_eq "single view" "$(gst .view)" camera
+G next >/dev/null; G next >/dev/null; expect_eq "next -> last camera" "$(gst .camera)" Garden
+G next >/dev/null; expect_eq "next from last camera wraps to grid" "$(gst .view)" grid
+G prev >/dev/null; expect_eq "prev from grid -> last camera" "$(gst .camera)" Garden
+G show "Front Door" >/dev/null; G prev >/dev/null; expect_eq "prev from first camera -> grid" "$(gst .view)" grid
+expect_eq "audio starts off" "$(gst .audio)" false
+G audio >/dev/null; expect_eq "audio toggles on" "$(gst .audio)" true
+G audio off >/dev/null; expect_eq "audio off" "$(gst .audio)" false
+"$BIN" --config "$GCFG" --no-spawn audio loud >/dev/null 2>&1; expect_eq "audio with a bad mode -> exit 2" $? 2
+G status | grep -q "grid view" && ok "human status shows the grid" || fail "human status grid line"
+G toggle >/dev/null; expect_eq "toggle hides from the grid" "$(gst .state)" hidden
+G quit >/dev/null; wait "$DPID" 2>/dev/null; DPID=""
 
 # ---------- missing password: daemon works, stream start reports an error ----------
 rm "$T/cfg/secrets.ini"

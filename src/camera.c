@@ -80,12 +80,14 @@ gboolean camera_list_find(const CameraList *l, const char *spec, guint *index)
 	return FALSE;
 }
 
-char *camera_resolve_url(const Config *cfg, const Camera *cam, GError **err)
+char *camera_resolve_url(const Config *cfg, const Camera *cam, int subtype_override, GError **err)
 {
 	if (cam->url)
 		return g_strdup(cam->url);
 
-	if (!cfg->host) {
+	const char *host = cam->host ? cam->host : cfg->host;
+	int port = cam->port > 0 ? cam->port : cfg->port;
+	if (!host) {
 		g_set_error_literal(err, CONFIG_ERROR, 2, "no recorder host configured ([recorder] host)");
 		return NULL;
 	}
@@ -102,14 +104,17 @@ char *camera_resolve_url(const Config *cfg, const Camera *cam, GError **err)
 		return NULL;
 	}
 
+	int sub = subtype_override >= 0 ? subtype_override : cam->subtype >= 0 ? cam->subtype : cfg->subtype;
+	char *rest = config_expand_path(cam->path ? cam->path : cfg->path, cam->path == NULL, cam->channel, sub, err);
+	if (!rest)
+		return NULL;
 	char *u = util_pct_encode(cfg->username);
 	char *p = util_pct_encode(cfg->password);
-	int sub = cam->subtype >= 0 ? cam->subtype : cfg->subtype;
-	const char *lb = strchr(cfg->host, ':') ? "[" : "";
-	const char *rb = strchr(cfg->host, ':') ? "]" : "";
-	char *url = g_strdup_printf("rtsp://%s:%s@%s%s%s:%d%s?channel=%d&subtype=%d", u, p, lb, cfg->host, rb,
-				    cfg->port, cfg->path, cam->channel, sub);
+	const char *lb = strchr(host, ':') ? "[" : "";
+	const char *rb = strchr(host, ':') ? "]" : "";
+	char *url = g_strdup_printf("rtsp://%s:%s@%s%s%s:%d%s", u, p, lb, host, rb, port, rest);
 	util_wipe_free(u);
 	util_wipe_free(p);
+	g_free(rest);
 	return url;
 }

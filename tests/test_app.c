@@ -6,12 +6,23 @@
 
 /* Stub inspection hooks (video_stub.c / overlay_stub.c). */
 gboolean video_stub_active(void);
+guint video_stub_active_count(void);
+gboolean video_stub_audio(guint slot);
 guint video_stub_start_count(void);
+guint overlay_stub_tiles(void);
+gboolean overlay_stub_audio(void);
 gboolean overlay_stub_visible(void);
 const char *overlay_stub_label(void);
 void overlay_stub_simulate_lost(void);
 
 #define PW "p@ss:w/rd%1"
+/* The legacy single-camera ring (grid view disabled); grid behaviour has its own tests below. */
+#define NOGRID TL_GOOD_CONFIG "[grid]\nenabled = false\n"
+#define FIVE_CAMS                                                                                         \
+	"[recorder]\nhost = 192.168.1.100\nusername = tester\n"                                          \
+	"[camera.a]\nname = A\nchannel = 1\n[camera.b]\nname = B\nchannel = 2\n"                      \
+	"[camera.c]\nname = C\nchannel = 3\n[camera.d]\nname = D\nchannel = 4\n"                      \
+	"[camera.e]\nname = E\nchannel = 5\n"
 
 static void sink(LogLevel l, const char *line, void *u)
 {
@@ -82,7 +93,7 @@ static void pump(guint ms)
 
 static void test_toggle_cycle(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_assert_cmpint(app_state(a), ==, APP_HIDDEN);
 	g_assert_false(video_stub_active());
 
@@ -103,7 +114,7 @@ static void test_toggle_cycle(void)
 
 static void test_next_prev_while_hidden_opens(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_assert_true(app_next(a, NULL));
 	g_assert_cmpint(app_state(a), ==, APP_CONNECTING); /* opened on the neighbour */
 	g_assert_cmpuint(app_current_index(a), ==, 1);
@@ -130,7 +141,7 @@ static void test_next_prev_while_hidden_opens(void)
 
 static void test_show(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	GError *e = NULL;
 	g_assert_false(app_show(a, "nope", &e));
 	g_assert_nonnull(e);
@@ -152,7 +163,7 @@ static void test_show(void)
 static void test_hide_during_connecting_cancels(void)
 {
 	g_setenv("CCTV_OVERLAY_STUB_DELAY_MS", "50", TRUE);
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_DELAY_MS", "50", TRUE);
 	app_toggle(a, NULL);
 	g_assert_cmpint(app_state(a), ==, APP_CONNECTING);
@@ -166,7 +177,7 @@ static void test_hide_during_connecting_cancels(void)
 
 static void test_failure_retries_then_error(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_FAIL", "1", TRUE);
 	app_toggle(a, NULL);
 	g_assert_true(wait_state(a, APP_RECONNECTING, 1000));
@@ -192,7 +203,7 @@ static void test_failure_retries_then_error(void)
 
 static void test_recovery_resets_backoff(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, FALSE);
+	App *a = make_app(NOGRID, PW, FALSE);
 	g_setenv("CCTV_OVERLAY_STUB_FAIL", "first:2", TRUE);
 	app_toggle(a, NULL);
 	g_assert_true(wait_state(a, APP_RECONNECTING, 1000));
@@ -214,7 +225,7 @@ static void test_reconnect_disabled(void)
 
 static void test_live_drop_reconnects(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_DROP_AFTER_MS", "30", TRUE);
 	app_toggle(a, NULL);
 	g_assert_true(wait_state(a, APP_LIVE, 1000));
@@ -226,7 +237,7 @@ static void test_live_drop_reconnects(void)
 
 static void test_overlay_lost_while_live_recovers(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_assert_true(app_toggle(a, NULL));
 	g_assert_true(wait_state(a, APP_LIVE, 1000));
 
@@ -244,7 +255,7 @@ static void test_overlay_lost_while_live_recovers(void)
 static void test_flapping_stream_reaches_error(void)
 {
 	g_setenv("CCTV_OVERLAY_LIVE_STABLE_MS", "1000", TRUE);
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_DELAY_MS", "10", TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_DROP_AFTER_MS", "10", TRUE);
 	guint starts_before = video_stub_start_count();
@@ -258,7 +269,7 @@ static void test_flapping_stream_reaches_error(void)
 
 static void test_reload_in_error_retries(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_setenv("CCTV_OVERLAY_STUB_FAIL", "1", TRUE);
 	app_toggle(a, NULL);
 	g_assert_true(wait_state(a, APP_ERROR, 5000));
@@ -271,7 +282,7 @@ static void test_reload_in_error_retries(void)
 
 static void test_missing_password_only_when_streaming(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, NULL, TRUE); /* no password anywhere */
+	App *a = make_app(NOGRID, NULL, TRUE); /* no password anywhere */
 	g_assert_cmpint(app_state(a), ==, APP_HIDDEN); /* app is fine without it */
 	JsonObject *st = app_ipc_handler(a, "status", NULL);
 	g_assert_true(json_object_get_boolean_member(st, "ok"));
@@ -289,7 +300,7 @@ static void test_missing_password_only_when_streaming(void)
 
 static void test_reload(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	app_show(a, "driveway", NULL);
 	g_assert_true(wait_state(a, APP_LIVE, 1000));
 
@@ -326,7 +337,7 @@ static void test_reload(void)
 
 static void test_reload_hidden_keeps_hidden(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	g_assert_true(app_reload(a, NULL));
 	g_assert_cmpint(app_state(a), ==, APP_HIDDEN);
 	g_assert_false(video_stub_active());
@@ -335,7 +346,7 @@ static void test_reload_hidden_keeps_hidden(void)
 
 static void test_ipc_handler_json(void)
 {
-	App *a = make_app(TL_GOOD_CONFIG, PW, TRUE);
+	App *a = make_app(NOGRID, PW, TRUE);
 	JsonObject *r = app_ipc_handler(a, "next", NULL);
 	g_assert_true(json_object_get_boolean_member(r, "ok"));
 	g_assert_true(json_object_get_boolean_member(r, "visible"));
@@ -363,10 +374,143 @@ static void test_ipc_handler_json(void)
 	destroy(a);
 }
 
+
+static void test_grid_is_start_view(void)
+{
+	App *a = make_app(FIVE_CAMS, PW, TRUE);
+	g_assert_true(app_toggle(a, NULL));
+	g_assert_true(app_grid_view(a));
+	g_assert_cmpuint(overlay_stub_tiles(), ==, 4);
+	g_assert_cmpstr(overlay_stub_label(), ==, "A|B|C|D"); /* the first four cameras */
+	g_assert_cmpuint(video_stub_active_count(), ==, 4);
+	g_assert_true(wait_state(a, APP_LIVE, 1000));
+
+	/* forward ring: grid -> A .. E -> grid */
+	const char *want[] = { "A", "B", "C", "D", "E" };
+	for (guint i = 0; i < G_N_ELEMENTS(want); i++) {
+		g_assert_true(app_next(a, NULL));
+		g_assert_false(app_grid_view(a));
+		g_assert_cmpstr(overlay_stub_label(), ==, want[i]);
+		g_assert_cmpuint(video_stub_active_count(), ==, 1); /* single view: one stream */
+	}
+	g_assert_true(app_next(a, NULL));
+	g_assert_true(app_grid_view(a));
+	g_assert_cmpuint(video_stub_active_count(), ==, 4);
+
+	/* backward ring: grid -> E, then A -> grid */
+	g_assert_true(app_prev(a, NULL));
+	g_assert_cmpstr(overlay_stub_label(), ==, "E");
+	app_show(a, "A", NULL);
+	g_assert_true(app_prev(a, NULL));
+	g_assert_true(app_grid_view(a));
+
+	/* hide and toggle again: always back on the grid */
+	app_next(a, NULL);
+	app_next(a, NULL);
+	g_assert_cmpstr(overlay_stub_label(), ==, "B");
+	g_assert_true(app_toggle(a, NULL));
+	g_assert_cmpint(app_state(a), ==, APP_HIDDEN);
+	g_assert_false(video_stub_active());
+	g_assert_true(app_toggle(a, NULL));
+	g_assert_true(app_grid_view(a));
+	app_hide(a);
+	g_assert_true(app_next(a, NULL)); /* next while hidden opens the start view too */
+	g_assert_true(app_grid_view(a));
+	destroy(a);
+}
+
+static void test_grid_one_bad_tile_keeps_others_live(void)
+{
+	App *a = make_app(FIVE_CAMS, PW, TRUE);
+	g_setenv("CCTV_OVERLAY_STUB_FAIL", "1", TRUE);
+	g_setenv("CCTV_OVERLAY_STUB_FAIL_SLOT", "2", TRUE);
+	app_toggle(a, NULL);
+	g_assert_true(wait_state(a, APP_LIVE, 1000));
+	pump(300);
+	g_assert_cmpint(app_state(a), ==, APP_LIVE); /* aggregate stays live */
+	g_assert_nonnull(app_last_error(a));        /* the failing tile reports */
+	g_unsetenv("CCTV_OVERLAY_STUB_FAIL_SLOT");
+	destroy(a);
+}
+
+static void test_grid_config(void)
+{
+	/* explicit grid list, by id or name, in tile order */
+	App *a = make_app(FIVE_CAMS "[grid]\ncameras = e, B\n", PW, TRUE);
+	app_toggle(a, NULL);
+	g_assert_cmpstr(overlay_stub_label(), ==, "E|B");
+	destroy(a);
+
+	/* a single camera has no grid: toggle opens the camera, grid command fails */
+	a = make_app("[recorder]\nhost = h\nusername = u\n[camera.a]\nname = Solo\nchannel = 1\n", PW, TRUE);
+	app_toggle(a, NULL);
+	g_assert_false(app_grid_view(a));
+	g_assert_cmpstr(overlay_stub_label(), ==, "Solo");
+	GError *e = NULL;
+	g_assert_false(app_grid(a, &e));
+	g_assert_nonnull(e);
+	g_error_free(e);
+	app_next(a, NULL); /* wraps onto itself */
+	g_assert_cmpstr(overlay_stub_label(), ==, "Solo");
+	destroy(a);
+}
+
+static void test_audio_toggle(void)
+{
+	App *a = make_app(FIVE_CAMS, PW, TRUE);
+	g_assert_false(app_audio(a));
+	app_set_audio(a, TRUE); /* while hidden: remembered only */
+	g_assert_true(app_audio(a));
+	app_toggle(a, NULL);    /* grid: never plays audio, icon shown dimmed */
+	g_assert_true(overlay_stub_audio());
+	for (guint i = 0; i < 4; i++)
+		g_assert_false(video_stub_audio(i));
+	app_next(a, NULL);      /* single camera starts with audio */
+	g_assert_true(video_stub_audio(0));
+	app_set_audio(a, FALSE); /* switched live */
+	g_assert_false(video_stub_audio(0));
+	g_assert_false(overlay_stub_audio());
+	app_set_audio(a, TRUE);
+	g_assert_true(video_stub_audio(0));
+
+	/* status JSON carries view and audio */
+	JsonObject *r = app_ipc_handler(a, "status", NULL);
+	g_assert_cmpstr(json_object_get_string_member(r, "view"), ==, "camera");
+	g_assert_true(json_object_get_boolean_member(r, "audio"));
+	json_object_unref(r);
+	JsonObject *req = json_object_new();
+	json_object_set_string_member(req, "mode", "off");
+	r = app_ipc_handler(a, "audio", req);
+	g_assert_true(json_object_get_boolean_member(r, "ok"));
+	g_assert_false(json_object_get_boolean_member(r, "audio"));
+	json_object_unref(r);
+	json_object_unref(req);
+	r = app_ipc_handler(a, "grid", NULL);
+	g_assert_cmpstr(json_object_get_string_member(r, "view"), ==, "grid");
+	g_assert_cmpuint(json_array_get_length(json_object_get_array_member(r, "tiles")), ==, 4);
+	json_object_unref(r);
+	destroy(a);
+}
+
+static void test_audio_config_default(void)
+{
+	App *a = make_app(FIVE_CAMS "[stream]\naudio = true\n[grid]\nenabled = false\n", PW, TRUE);
+	g_assert_true(app_audio(a));
+	app_toggle(a, NULL);
+	g_assert_false(app_grid_view(a));
+	g_assert_true(video_stub_audio(0));
+	destroy(a);
+}
+
 int main(int argc, char **argv)
 {
 	g_test_init(&argc, &argv, NULL);
 	g_test_add_func("/app/toggle-cycle", test_toggle_cycle);
+	g_test_add_func("/app/grid-start-view-and-ring", test_grid_is_start_view);
+	g_test_add_func("/app/grid-bad-tile", test_grid_one_bad_tile_keeps_others_live);
+	g_test_add_func("/app/grid-config", test_grid_config);
+	g_test_add_func("/app/audio-toggle", test_audio_toggle);
+	g_test_add_func("/app/audio-config-default", test_audio_config_default);
 	g_test_add_func("/app/next-prev-while-hidden-opens", test_next_prev_while_hidden_opens);
 	g_test_add_func("/app/show", test_show);
 	g_test_add_func("/app/hide-during-connecting", test_hide_during_connecting_cancels);

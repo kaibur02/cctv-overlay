@@ -7,6 +7,22 @@ version 0.1.0 is tagged. Nothing has been tagged yet.
 
 ### Added
 
+- **Grid view**: up to four cameras in one 2×2 frame (`[grid]`, default the first four). It is the first view on
+  every `toggle`; `next`/`prev` cycle grid → camera 1 → … → camera N → grid, wrapping both ways. New `grid`
+  command. Each tile has its own libmpv player (zero-copy VA-API), state and reconnect backoff.
+- **Audio**: `cctv-overlay audio [on|off]` toggles camera sound live (single-camera view only); a drawn speaker
+  icon shows in the overlay corner (crossed out when the stream has no audio track, dimmed in the grid).
+  `[stream] audio` sets the start value. With audio off no audio output is opened.
+- **Other camera systems**: `[recorder] path` templates (`{channel}`, `{channel02}`, `{subtype}`, `{stream}`,
+  `{mainsub}`) and per-camera `host`/`port`/`path` for Hikvision, Reolink, Uniview, Tapo and separate IP cameras.
+  Credentials are still inserted only from `secrets.ini`.
+- `cctv-overlay check`: offline validation of config and secrets (never prints secrets).
+- `install.sh`: guided installer (requirements, build, install, camera system, cameras, monitor, size, key
+  bindings in a managed block with backup and automatic rollback, hidden password prompt, live test), with
+  `--answers` for unattended/AI installs, `--set-password`, `--check`, `--test`, `--uninstall`.
+- Docs: `docs/requirements.md`, `docs/ai-install.md`, `examples/install.answers.example`.
+- Status JSON: `view`, `audio`, `tiles`; `list --json` marks `in_grid`.
+
 - Daemon `cctv-overlay daemon` with a thin CLI client: `toggle`, `next`, `prev`, `show`, `hide`, `status`
   (`--json`), `list`, `reload`, `quit`, `ping`.
 - Real video engine: libmpv render API in a GTK 4 `GtkGLArea`, VA-API hardware decode, low-latency RTSP profile,

@@ -11,17 +11,21 @@
  *   CCTV_OVERLAY_STUB_DELAY_MS=N     first-frame delay, default 150
  *   CCTV_OVERLAY_STUB_FAIL=1         every start fails after the delay ("always" also accepted)
  *   CCTV_OVERLAY_STUB_FAIL=first:N   only the first N starts after the value was set fail
+ *   CCTV_OVERLAY_STUB_FAIL_SLOT=N    restrict CCTV_OVERLAY_STUB_FAIL to slot N (grid tests)
  *   CCTV_OVERLAY_STUB_DROP_AFTER_MS=N  after the first frame, simulate a stall/error N ms later
  */
 
-static struct {
-	guint next_session;
+typedef struct {
+	guint slot;
 	guint session; /* active session id, 0 = none */
 	guint src_frame, src_drop;
-	guint starts;
+	gboolean audio;
 	VideoCallbacks cb;
 	void *user;
-} S;
+} Slot;
+
+static Slot S[VIDEO_MAX_SLOTS];
+static guint next_session, starts;
 
 static long env_long(const char *name, long def)
 {
@@ -29,10 +33,12 @@ static long env_long(const char *name, long def)
 	return (v && *v) ? strtol(v, NULL, 10) : def;
 }
 
-static gboolean should_fail(void)
+static gboolean should_fail(guint slot)
 {
 	const char *v = g_getenv("CCTV_OVERLAY_STUB_FAIL");
 	if (!v || !*v || strcmp(v, "0") == 0)
+		return FALSE;
+	if (env_long("CCTV_OVERLAY_STUB_FAIL_SLOT", -1) >= 0 && env_long("CCTV_OVERLAY_STUB_FAIL_SLOT", -1) != (long)slot)
 		return FALSE;
 	if (g_str_has_prefix(v, "first:")) {
 		static char *last_spec;
@@ -47,65 +53,110 @@ static gboolean should_fail(void)
 	return TRUE;
 }
 
+static Slot *by_session(guint session)
+{
+	for (guint i = 0; i < VIDEO_MAX_SLOTS; i++)
+		if (session && S[i].session == session)
+			return &S[i];
+	return NULL;
+}
+
 static gboolean drop_cb(gpointer data)
 {
-	guint session = GPOINTER_TO_UINT(data);
-	S.src_drop = 0;
-	if (session == S.session)
-		S.cb.error(S.user, session, "simulated stream stall");
+	Slot *s = by_session(GPOINTER_TO_UINT(data));
+	if (!s)
+		return G_SOURCE_REMOVE;
+	s->src_drop = 0;
+	s->cb.error(s->user, s->slot, s->session, "simulated stream stall");
 	return G_SOURCE_REMOVE;
 }
 
 static gboolean frame_cb(gpointer data)
 {
-	guint session = GPOINTER_TO_UINT(data);
-	S.src_frame = 0;
-	if (session != S.session)
+	Slot *s = by_session(GPOINTER_TO_UINT(data));
+	if (!s)
 		return G_SOURCE_REMOVE;
-	if (should_fail()) {
-		S.cb.error(S.user, session, "simulated stream failure");
+	s->src_frame = 0;
+	if (should_fail(s->slot)) {
+		s->cb.error(s->user, s->slot, s->session, "simulated stream failure");
 		return G_SOURCE_REMOVE;
 	}
 	long drop = env_long("CCTV_OVERLAY_STUB_DROP_AFTER_MS", 0);
 	if (drop > 0)
-		S.src_drop = g_timeout_add((guint)drop, drop_cb, data);
-	S.cb.first_frame(S.user, session);
+		s->src_drop = g_timeout_add((guint)drop, drop_cb, data);
+	s->cb.first_frame(s->user, s->slot, s->session);
 	return G_SOURCE_REMOVE;
 }
 
-guint video_start(const Config *cfg, VideoUrlBuilder build, void *build_user, const VideoCallbacks *cb,
-		  void *cb_user, GError **err)
+guint video_start(guint slot, const Config *cfg, gboolean audio, VideoUrlBuilder build, void *build_user,
+		  const VideoCallbacks *cb, void *cb_user, GError **err)
 {
 	(void)cfg;
-	video_stop();
+	g_return_val_if_fail(slot < VIDEO_MAX_SLOTS, 0);
+	video_stop(slot);
 
-	char *url = build(build_user, err); /* exercises the real credential path */
+	char *url = build(build_user, slot, err); /* exercises the real credential path */
 	if (!url)
 		return 0;
 	util_wipe_free(url);
 
-	S.cb = *cb;
-	S.user = cb_user;
-	S.starts++;
-	S.session = ++S.next_session;
+	Slot *s = &S[slot];
+	s->slot = slot;
+	s->cb = *cb;
+	s->user = cb_user;
+	s->audio = audio;
+	starts++;
+	s->session = ++next_session;
 	long delay = env_long("CCTV_OVERLAY_STUB_DELAY_MS", 150);
-	S.src_frame = g_timeout_add((guint)(delay < 0 ? 0 : delay), frame_cb, GUINT_TO_POINTER(S.session));
-	log_debug("video(stub): start session %u", S.session);
-	return S.session;
+	s->src_frame = g_timeout_add((guint)(delay < 0 ? 0 : delay), frame_cb, GUINT_TO_POINTER(s->session));
+	log_debug("video(stub): slot %u start session %u%s", slot, s->session, audio ? " (audio)" : "");
+	return s->session;
 }
 
-void video_stop(void)
+void video_stop(guint slot)
 {
-	if (S.src_frame)
-		g_source_remove(S.src_frame);
-	if (S.src_drop)
-		g_source_remove(S.src_drop);
-	S.src_frame = S.src_drop = 0;
-	if (S.session)
-		log_debug("video(stub): stop session %u", S.session);
-	S.session = 0;
+	if (slot >= VIDEO_MAX_SLOTS)
+		return;
+	Slot *s = &S[slot];
+	if (s->src_frame)
+		g_source_remove(s->src_frame);
+	if (s->src_drop)
+		g_source_remove(s->src_drop);
+	s->src_frame = s->src_drop = 0;
+	if (s->session)
+		log_debug("video(stub): slot %u stop session %u", slot, s->session);
+	s->session = 0;
+	s->audio = FALSE;
+}
+
+void video_stop_all(void)
+{
+	for (guint i = 0; i < VIDEO_MAX_SLOTS; i++)
+		video_stop(i);
+}
+
+void video_set_audio(guint slot, gboolean on)
+{
+	if (slot < VIDEO_MAX_SLOTS && S[slot].session) {
+		S[slot].audio = on;
+		log_debug("video(stub): slot %u audio %s", slot, on ? "on" : "off");
+	}
 }
 
 /* Test-only inspection (declared in the tests, not in video.h). */
-gboolean video_stub_active(void) { return S.session != 0; }
-guint video_stub_start_count(void) { return S.starts; }
+gboolean video_stub_active(void)
+{
+	for (guint i = 0; i < VIDEO_MAX_SLOTS; i++)
+		if (S[i].session)
+			return TRUE;
+	return FALSE;
+}
+guint video_stub_active_count(void)
+{
+	guint n = 0;
+	for (guint i = 0; i < VIDEO_MAX_SLOTS; i++)
+		n += S[i].session != 0;
+	return n;
+}
+gboolean video_stub_audio(guint slot) { return slot < VIDEO_MAX_SLOTS && S[slot].audio; }
+guint video_stub_start_count(void) { return starts; }

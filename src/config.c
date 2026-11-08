@@ -142,9 +142,52 @@ static const char *const K_GENERAL[] = { "log_level", "monitor", "start_hidden",
 static const char *const K_OVERLAY[] = { "width", "height", "anchor", "margin_x", "margin_y", "layer",
 					 "show_label", "show_status", "opacity", NULL };
 static const char *const K_STREAM[] = { "transport", "subtype", "hwdec", "preview_snapshot", "preload_next",
-					"reconnect", NULL };
+					"reconnect", "audio", NULL };
 static const char *const K_RECORDER[] = { "host", "port", "username", "path", NULL };
-static const char *const K_CAMERA[] = { "name", "channel", "subtype", "url", NULL };
+static const char *const K_CAMERA[] = { "name", "channel", "subtype", "url", "host", "port", "path", NULL };
+static const char *const K_GRID[] = { "enabled", "cameras", "subtype", NULL };
+
+char *config_expand_path(const char *path, gboolean dahua_query, int channel, int subtype, GError **err)
+{
+	if (dahua_query && !strchr(path, '{'))
+		return g_strdup_printf("%s?channel=%d&subtype=%d", path, channel, subtype);
+
+	GString *out = g_string_new(NULL);
+	for (const char *p = path; *p;) {
+		if (*p != '{') {
+			g_string_append_c(out, *p++);
+			continue;
+		}
+		const char *end = strchr(p, '}');
+		if (!end) {
+			g_set_error(err, CONFIG_ERROR, 1, "unterminated '{' in path template");
+			g_string_free(out, TRUE);
+			return NULL;
+		}
+		char *name = g_strndup(p + 1, (gsize)(end - p - 1));
+		if (strcmp(name, "channel") == 0)
+			g_string_append_printf(out, "%d", channel);
+		else if (strcmp(name, "channel02") == 0)
+			g_string_append_printf(out, "%02d", channel);
+		else if (strcmp(name, "subtype") == 0)
+			g_string_append_printf(out, "%d", subtype);
+		else if (strcmp(name, "stream") == 0)
+			g_string_append_printf(out, "%d", subtype + 1);
+		else if (strcmp(name, "mainsub") == 0)
+			g_string_append(out, subtype == 0 ? "main" : "sub");
+		else {
+			g_set_error(err, CONFIG_ERROR, 1,
+				    "unknown placeholder '{%.32s}' in path template (use {channel} {channel02} "
+				    "{subtype} {stream} {mainsub})", name);
+			g_free(name);
+			g_string_free(out, TRUE);
+			return NULL;
+		}
+		g_free(name);
+		p = end + 1;
+	}
+	return g_string_free(out, FALSE);
+}
 
 static void camera_free(Camera *c)
 {
@@ -153,6 +196,8 @@ static void camera_free(Camera *c)
 	g_free(c->id);
 	g_free(c->name);
 	util_wipe_free(c->url);
+	g_free(c->host);
+	g_free(c->path);
 	g_free(c);
 }
 
@@ -212,9 +257,26 @@ static gboolean load_cameras(GKeyFile *kf, Config *cfg, GError **err)
 		ok = get_str(kf, path, g, "name", &c->name, FALSE, err) &&
 		     get_str(kf, path, g, "url", &c->url, FALSE, err) &&
 		     get_int(kf, path, g, "channel", 1, 1024, &c->channel, err) &&
-		     get_int(kf, path, g, "subtype", 0, 3, &c->subtype, err);
+		     get_int(kf, path, g, "subtype", 0, 3, &c->subtype, err) &&
+		     get_str(kf, path, g, "host", &c->host, FALSE, err) &&
+		     get_int(kf, path, g, "port", 1, 65535, &c->port, err) &&
+		     get_str(kf, path, g, "path", &c->path, FALSE, err);
 		if (!ok)
 			break;
+		if (c->host && !host_ok(c->host)) {
+			ok = FAIL(err, path, "[%s] host: not a valid host name or address", g);
+			break;
+		}
+		if (c->path) {
+			GError *te = NULL;
+			char *x = c->path[0] == '/' ? config_expand_path(c->path, FALSE, 1, 0, &te) : NULL;
+			if (!x) {
+				ok = FAIL(err, path, "[%s] path: %s", g, te ? te->message : "must start with '/'");
+				g_clear_error(&te);
+				break;
+			}
+			g_free(x);
+		}
 		if (!c->name) {
 			ok = FAIL(err, path, "[%s] name: required (the label shown on the overlay)", g);
 			break;
@@ -222,8 +284,10 @@ static gboolean load_cameras(GKeyFile *kf, Config *cfg, GError **err)
 		if (c->url) {
 			if (!g_str_has_prefix(c->url, "rtsp://") && !g_str_has_prefix(c->url, "rtsps://"))
 				ok = FAIL(err, path, "[%s] url: must start with rtsp:// or rtsps://", g);
+		} else if (c->channel < 1 && c->path) {
+			c->channel = 1; /* a per-camera path may not use {channel} at all */
 		} else if (c->channel < 1) {
-			ok = FAIL(err, path, "[%s] channel: required (>= 1) unless 'url' is set", g);
+			ok = FAIL(err, path, "[%s] channel: required (>= 1) unless 'url' or 'path' is set", g);
 		}
 		if (!ok)
 			break;
@@ -239,6 +303,51 @@ static gboolean load_cameras(GKeyFile *kf, Config *cfg, GError **err)
 	g_strfreev(groups);
 	if (ok && cfg->cameras->len == 0)
 		return FAIL(err, path, "no cameras defined; add at least one [camera.<id>] section with name and channel");
+	return ok;
+}
+
+/* [grid] cameras = comma-separated ids or names (2..4); default: the first four cameras. */
+static gboolean load_grid(GKeyFile *kf, Config *cfg, GError **err)
+{
+	const char *path = cfg->config_path;
+	guint n = cfg->cameras->len;
+
+	cfg->grid_count = 0;
+	if (!has(kf, "grid", "cameras")) {
+		if (cfg->grid_enabled && n >= 2)
+			for (guint i = 0; i < n && i < CONFIG_GRID_MAX; i++)
+				cfg->grid_idx[cfg->grid_count++] = i;
+		return TRUE;
+	}
+	char *raw = g_key_file_get_value(kf, "grid", "cameras", NULL);
+	char **parts = g_strsplit(raw ? raw : "", ",", -1);
+	gboolean ok = TRUE;
+	guint count = 0;
+	g_free(raw);
+	for (char **pp = parts; *pp && ok; pp++) {
+		char *want = g_strstrip(*pp);
+		if (!*want)
+			continue;
+		if (count == CONFIG_GRID_MAX) {
+			ok = FAIL(err, path, "[grid] cameras: at most %d cameras fit in the grid", CONFIG_GRID_MAX);
+			break;
+		}
+		gboolean found = FALSE;
+		for (guint i = 0; i < n && !found; i++) {
+			const Camera *c = g_ptr_array_index(cfg->cameras, i);
+			if (strcmp(c->id, want) == 0 || g_ascii_strcasecmp(c->name, want) == 0) {
+				cfg->grid_idx[count++] = i;
+				found = TRUE;
+			}
+		}
+		if (!found)
+			ok = FAIL(err, path, "[grid] cameras: '%s' is not a camera id or name", want);
+	}
+	g_strfreev(parts);
+	if (ok && count < 2)
+		ok = FAIL(err, path, "[grid] cameras: list at least 2 cameras (or remove the key)");
+	if (ok && cfg->grid_enabled)
+		cfg->grid_count = count;
 	return ok;
 }
 
@@ -349,6 +458,8 @@ Config *config_load(const char *path, GError **err)
 	cfg->hwdec = g_strdup("vaapi");
 	cfg->preview_snapshot = cfg->reconnect = TRUE;
 	cfg->port = 554;
+	cfg->grid_enabled = TRUE;
+	cfg->grid_subtype = -1;
 	cfg->path = g_strdup("/cam/realmonitor");
 	cfg->username = g_strdup("");
 	cfg->cameras = g_ptr_array_new_with_free_func((GDestroyNotify)camera_free);
@@ -375,8 +486,9 @@ Config *config_load(const char *path, GError **err)
 		else if (strcmp(g, "overlay") == 0) ok = check_keys(kf, p, g, K_OVERLAY, err);
 		else if (strcmp(g, "stream") == 0) ok = check_keys(kf, p, g, K_STREAM, err);
 		else if (strcmp(g, "recorder") == 0) ok = check_keys(kf, p, g, K_RECORDER, err);
+		else if (strcmp(g, "grid") == 0) ok = check_keys(kf, p, g, K_GRID, err);
 		else if (!g_str_has_prefix(g, "camera."))
-			ok = FAIL(err, p, "unknown section [%s]; expected general, overlay, stream, recorder or camera.<id>", g);
+			ok = FAIL(err, p, "unknown section [%s]; expected general, overlay, stream, recorder, grid or camera.<id>", g);
 	}
 	g_strfreev(groups);
 	if (!ok)
@@ -410,6 +522,9 @@ Config *config_load(const char *path, GError **err)
 	     get_bool(kf, p, "stream", "preview_snapshot", &cfg->preview_snapshot, err) &&
 	     get_bool(kf, p, "stream", "preload_next", &cfg->preload_next, err) &&
 	     get_bool(kf, p, "stream", "reconnect", &cfg->reconnect, err) &&
+	     get_bool(kf, p, "stream", "audio", &cfg->audio, err) &&
+	     get_bool(kf, p, "grid", "enabled", &cfg->grid_enabled, err) &&
+	     get_int(kf, p, "grid", "subtype", 0, 3, &cfg->grid_subtype, err) &&
 	     get_str(kf, p, "recorder", "host", &cfg->host, FALSE, err) &&
 	     get_int(kf, p, "recorder", "port", 1, 65535, &cfg->port, err) &&
 	     get_str(kf, p, "recorder", "path", &cfg->path, FALSE, err) &&
@@ -436,6 +551,15 @@ Config *config_load(const char *path, GError **err)
 	if (cfg->path[0] != '/') {
 		ok = FAIL(err, p, "[recorder] path: must start with '/'");
 		goto out;
+	} else {
+		GError *te = NULL;
+		char *x = config_expand_path(cfg->path, TRUE, 1, 0, &te);
+		if (!x) {
+			ok = FAIL(err, p, "[recorder] path: %s", te->message);
+			g_clear_error(&te);
+			goto out;
+		}
+		g_free(x);
 	}
 	if (cfg->host && !host_ok(cfg->host)) {
 		ok = FAIL(err, p, "[recorder] host: not a valid host name or address");
@@ -448,12 +572,16 @@ Config *config_load(const char *path, GError **err)
 
 	for (guint i = 0; i < cfg->cameras->len; i++) {
 		const Camera *c = g_ptr_array_index(cfg->cameras, i);
-		if (!c->url && !cfg->host) {
-			ok = FAIL(err, p, "[recorder] host: required because [camera.%s] has no 'url' "
+		if (!c->url && !c->host && !cfg->host) {
+			ok = FAIL(err, p, "[recorder] host: required because [camera.%s] has no 'url' or 'host' "
 				  "(set host to your recorder's address)", c->id);
 			goto out;
 		}
 	}
+
+	ok = load_grid(kf, cfg, err);
+	if (!ok)
+		goto out;
 
 	load_secrets(cfg);
 

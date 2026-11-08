@@ -1,5 +1,27 @@
 # Installation
 
+**Recommended: run the installer.**
+
+```sh
+git clone <repository-url> cctv-overlay && cd cctv-overlay
+./install.sh
+```
+
+It checks the [requirements](requirements.md) (and offers to install missing Arch packages), builds, installs to
+`~/.local/bin`, asks about your camera system, cameras, monitor, size and keys, stores the password with a hidden
+prompt in `secrets.ini` (mode 0600), and opens the overlay once to test the cameras. Re-running it keeps your
+existing configuration unless you choose to replace it (it is backed up). Other modes:
+
+| Command | Does |
+|---|---|
+| `./install.sh --check` | report requirements, change nothing |
+| `./install.sh --set-password` | set or change the password (hidden prompt; must be typed by you) |
+| `./install.sh --test` | open the overlay once and report each camera |
+| `./install.sh --answers FILE --yes` | unattended install, e.g. by an AI assistant: see [ai-install.md](ai-install.md) |
+| `./install.sh --uninstall` | remove the program and the key-binding block; asks before deleting your config |
+
+The rest of this page is the manual route.
+
 cctv-overlay is a C program built with `make`. It needs a Wayland session with a compositor that supports
 the wlr layer-shell protocol (see [limitations](../README.md#limitations)). It was built and tested on Hyprland
 0.56.2 under Arch Linux.

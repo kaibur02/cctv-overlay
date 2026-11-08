@@ -52,6 +52,14 @@ url = rtsp://tester:wrong@127.0.0.1:$PORT/live
 [camera.down]
 name = Nothing Listens
 url = rtsp://tester:$PW_ENC@127.0.0.1:$((PORT + 7))/live
+[camera.a2]
+name = Loop A2
+url = rtsp://tester:$PW_ENC@127.0.0.1:$PORT/live
+[camera.b2]
+name = Loop B2
+url = rtsp://tester:$PW_ENC@127.0.0.1:$PORT2/live
+[grid]
+enabled = false
 EOF
 
 fails=0 checks=0 DPID="" SPIDS=""
@@ -143,15 +151,19 @@ FD1=$(pfd); TH1=$(pthr); RSS1=$(prss)
 echo "info - baseline after first cycle: fds=$FD1 threads=$TH1 rss_kb=$RSS1 (startup: fds=$FD0 threads=$TH0)"
 
 # ---- lifecycle cycles ----
+# The GL driver (Mesa) creates its shader-compiler/disk-cache pool threads lazily over the first few cycles, so
+# threads are compared between the halfway point and the end: a real leak keeps growing, the pools do not.
+HALF=$((CYCLES / 2))
 for i in $(seq "$CYCLES"); do
 	C toggle >/dev/null; wait_state live 10 || fail "cycle $i did not go live"
 	C toggle >/dev/null; sleep 0.15
+	[ "$i" -eq "$HALF" ] && { sleep 0.5; THH=$(pthr); }
 done
 sleep 0.5
 FD2=$(pfd); TH2=$(pthr); RSS2=$(prss)
-echo "info - after $CYCLES show/hide cycles: fds=$FD2 threads=$TH2 rss_kb=$RSS2 (delta rss $((RSS2 - RSS1)) kB)"
+echo "info - after $CYCLES show/hide cycles: fds=$FD2 threads=$TH2 (at $HALF: $THH) rss_kb=$RSS2 (delta rss $((RSS2 - RSS1)) kB)"
 expect_eq "fd count back to baseline after $CYCLES cycles" "$FD2" "$FD1"
-[ "$TH2" -le "$TH1" ] && ok "thread count not above baseline ($TH2 <= $TH1)" || fail "threads grew: $TH1 -> $TH2"
+[ "$TH2" -le "$THH" ] && ok "thread count flat over the second half ($TH2 <= $THH)" || fail "threads grew: $THH -> $TH2"
 [ $((RSS2 - RSS1)) -lt 30000 ] && ok "RSS growth over $CYCLES cycles < 30 MB" || fail "RSS grew $((RSS2 - RSS1)) kB"
 expect_eq "no RTSP connection after cycles" "$(established)" 0
 expect_eq "no layer after cycles" "$(layer_ns)" 0
@@ -180,6 +192,51 @@ ps -eo args | grep -v -e rtsp_loopback -e 'grep -F' | grep -F -e "$PW" -e "$PW_E
 C status --json | grep -qF -e "$PW" -e "$PW_ENC" -e rtsp:// && l2=3
 expect_eq "no secret in cmdline, ps or status JSON while streaming" "$l2" 0
 C hide >/dev/null
+
+# ---- grid view: four libmpv players at once ----
+sed -i '/^\[grid\]/,$d' "$CFG"
+printf '[grid]\ncameras = a, b, a2, b2\n' >> "$CFG"
+C reload >/dev/null; expect_eq "reload with grid enabled" $? 0
+C toggle >/dev/null
+expect_eq "toggle opens the grid view" "$(jst .view)" grid
+wait_state live 10 && ok "grid reaches live" || fail "grid not live: $(jst .error)"
+all_live() { [ "$(jst '[.tiles[]|select(.state=="live")]|length')" = 4 ]; }
+for _ in $(seq 100); do all_live && break; sleep 0.1; done
+all_live && ok "all four grid tiles live" || fail "grid tiles: $(C status --json | jq -c .tiles)"
+expect_eq "four RTSP connections for the grid" "$(established)" 4
+expect_eq "one layer surface for the grid" "$(layer_ns)" 1
+GEOM=$(hyprctl layers -j | jq -r --arg m "$MON" '[.[$m].levels|to_entries[]|.value[]|select(.namespace=="cctv-overlay")][0]|"\(.x),\(.y) \(.w)x\(.h)"')
+sleep 0.5
+grim -g "$GEOM" -t ppm "$T/grid.ppm" && python3 -I - "$T/grid.ppm" <<'PY'
+import sys
+d = open(sys.argv[1], "rb").read()
+parts = d.split(None, 4)
+w, h = int(parts[1]), int(parts[2]); px = parts[4][-w*h*3:]
+px = px[:len(px) // 3 * 3]
+def colourful(x0, y0, x1, y1):
+    n = c = 0
+    for y in range(y0, y1, 2):
+        for x in range(x0, x1, 2):
+            i = (y * w + x) * 3
+            if i + 2 >= len(px): continue
+            n += 1; c += max(px[i:i+3]) - min(px[i:i+3]) > 80
+    return c / max(n, 1)
+q = [colourful(0, 0, w//2, h//2), colourful(w//2, 0, w, h//2), colourful(0, h//2, w//2, h), colourful(w//2, h//2, w, h)]
+print("grid quadrants colourful:", " ".join(f"{v:.2f}" for v in q))
+sys.exit(0 if min(q) > 0.15 else 1)
+PY
+[ $? -eq 0 ] && ok "screenshot shows video in all four grid quadrants" || fail "grid screenshot quadrants"
+C next >/dev/null; wait_state live 10
+expect_eq "next from grid -> first camera" "$(jst .camera)" "Loop A"
+sleep 1; expect_eq "single view holds one RTSP connection" "$(established)" 1
+C audio on >/dev/null; expect_eq "audio on (stream has no audio track; must not disturb video)" "$(jst .audio)" true
+sleep 1; expect_eq "still live after enabling audio" "$(jst .state)" live
+C audio off >/dev/null
+C prev >/dev/null; expect_eq "prev from first camera -> grid" "$(jst .view)" grid
+wait_state live 10 || fail "grid did not return live"
+C hide >/dev/null; sleep 0.5
+expect_eq "hide from grid: no RTSP connection" "$(established)" 0
+expect_eq "hide from grid: no layer" "$(layer_ns)" 0
 
 # ---- quit ----
 C quit >/dev/null; sleep 0.5

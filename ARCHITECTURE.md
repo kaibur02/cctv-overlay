@@ -415,3 +415,29 @@ Still open and deliberately documented rather than rushed:
   game, other compositors/GPUs.
 
 See `.agent-work/reports/2026-11-08-sec-review.md` and `2026-11-08-adv-review.md` for the original findings.
+
+## 14. Grid view, audio and camera-system templates (2026-11-08, second session)
+
+- **Views.** The app selects either the *grid* (2..4 tiles, `[grid]`, default the first four cameras) or a
+  *single camera*. `toggle` from hidden always opens the grid when one exists; `next`/`prev` walk the ring
+  grid → camera 0 … camera N-1 → grid. Without a grid the original camera ring and D-007 behaviour remain.
+- **Tiles.** `app.c` keeps a `Tile` per video slot (session, state, retries, backoff timers, error). The retry
+  policy is unchanged but per tile, so one offline camera never takes the grid down. The app state is an
+  aggregate (live > connecting > reconnecting > error); in the single view it equals tile 0, so the old state
+  machine, tests and status fields still hold.
+- **Engine slots.** `video.h` exposes `VIDEO_MAX_SLOTS` (4) independent players; each slot owns one mpv
+  handle + render context bound to its own `GtkGLArea` (one GL context per tile, zero-copy VA-API each).
+  Session ids are unique across slots. Idle/watchdog callbacks resolve the player by session id.
+  Alternative rejected: one mpv with `lavfi-complex`/`xstack` (forces software frames for the filter graph, all
+  tiles stall together, credentialed URLs in an option list whose separator is `:`).
+- **Overlay.** One layer window; the frame holds a `GtkGrid` of tiles (label + status per tile) and a cairo-drawn
+  speaker icon (no icon-theme dependency). A different tile count rebuilds the grid, so the app stops every slot
+  before switching views.
+- **Audio.** `aid=no` by default, so no audio output is opened; `video_set_audio()` flips `aid` live. Only the
+  single view plays audio. The engine reports whether a stream has an audio track (icon crossed out if not).
+- **Templates.** `[recorder] path` without `{` keeps the Dahua query (backwards compatible); with placeholders it
+  is a template. Per-camera `host`/`port`/`path` cover separate IP cameras; credentials are always inserted from
+  `secrets.ini` by `camera_resolve_url()`.
+- **Installer.** `install.sh` never handles the password except through a hidden terminal prompt
+  (`--set-password`), refuses password keys in answer files, edits only a marked bind block (backup + automatic
+  rollback on new `hyprctl configerrors`), and keeps an existing `config.ini` unless told otherwise.

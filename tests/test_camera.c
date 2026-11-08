@@ -66,14 +66,14 @@ static void test_url_encoding(void)
 {
 	Config *c = load_with(TL_GOOD_CONFIG, PW);
 	GError *e = NULL;
-	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), &e);
+	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, &e);
 	g_assert_no_error(e);
 	g_assert_cmpstr(url, ==,
 			"rtsp://tester:p%40ss%3Aw%2Frd%251@192.168.1.100:554/cam/realmonitor?channel=1&subtype=1");
 	util_wipe_free(url);
 
 	/* per-camera subtype override */
-	url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 1), &e);
+	url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 1), -1, &e);
 	g_assert_nonnull(strstr(url, "?channel=2&subtype=0"));
 	util_wipe_free(url);
 	config_free(c);
@@ -83,7 +83,7 @@ static void test_url_userinfo_awkward_username(void)
 {
 	Config *c = load_with("[recorder]\nhost = h.example.invalid\nusername = us er@x\n"
 			      "[camera.a]\nname = A\nchannel = 1\n", "a b?c#d");
-	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), NULL);
+	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
 	g_assert_true(g_str_has_prefix(url, "rtsp://us%20er%40x:a%20b%3Fc%23d@h.example.invalid:554/"));
 	util_wipe_free(url);
 	config_free(c);
@@ -92,7 +92,7 @@ static void test_url_userinfo_awkward_username(void)
 static void test_ipv6_host(void)
 {
 	Config *c = load_with("[recorder]\nhost = fe80::1\nusername = u\n[camera.a]\nname = A\nchannel = 1\n", "p");
-	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), NULL);
+	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
 	g_assert_nonnull(strstr(url, "@[fe80::1]:554/"));
 	util_wipe_free(url);
 	config_free(c);
@@ -102,7 +102,7 @@ static void test_missing_credentials_errors(void)
 {
 	Config *c = load_with(TL_GOOD_CONFIG, NULL); /* no password */
 	GError *e = NULL;
-	g_assert_null(camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), &e));
+	g_assert_null(camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, &e));
 	g_assert_nonnull(e);
 	g_assert_nonnull(strstr(e->message, "password"));
 	g_assert_null(strstr(e->message, "rtsp://"));
@@ -110,7 +110,7 @@ static void test_missing_credentials_errors(void)
 	config_free(c);
 
 	c = load_with("[recorder]\nhost = h\n[camera.a]\nname = A\nchannel = 1\n", "pw");
-	g_assert_null(camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), &e));
+	g_assert_null(camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, &e));
 	g_assert_nonnull(strstr(e->message, "username"));
 	g_error_free(e);
 	config_free(c);
@@ -119,8 +119,40 @@ static void test_missing_credentials_errors(void)
 static void test_override_url(void)
 {
 	Config *c = load_with("[camera.x]\nname = X\nurl = rtsp://h.example.invalid/s\n", NULL);
-	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), NULL);
+	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
 	g_assert_cmpstr(url, ==, "rtsp://h.example.invalid/s"); /* no credentials needed */
+	util_wipe_free(url);
+	config_free(c);
+}
+
+
+static void test_path_templates(void)
+{
+	/* Hikvision-style: /Streaming/Channels/<ch>0<stream> */
+	Config *c = load_with("[recorder]\nhost = nvr.example.invalid\nusername = u\n"
+			      "path = /Streaming/Channels/{channel}0{stream}\n[stream]\nsubtype = 0\n"
+			      "[camera.a]\nname = A\nchannel = 3\n", "pw");
+	char *url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
+	g_assert_cmpstr(url, ==, "rtsp://u:pw@nvr.example.invalid:554/Streaming/Channels/301");
+	util_wipe_free(url);
+	url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), 1, NULL); /* grid sub stream */
+	g_assert_true(g_str_has_suffix(url, "/Streaming/Channels/302"));
+	util_wipe_free(url);
+	config_free(c);
+
+	/* Reolink-style with per-camera host/port (standalone cameras) */
+	c = load_with("[recorder]\nusername = admin\n"
+		      "[camera.a]\nname = A\nhost = 10.0.0.5\nport = 8554\nchannel = 1\n"
+		      "path = /h264Preview_{channel02}_{mainsub}\n", "pw");
+	url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
+	g_assert_cmpstr(url, ==, "rtsp://admin:pw@10.0.0.5:8554/h264Preview_01_sub");
+	util_wipe_free(url);
+	config_free(c);
+
+	/* a per-camera path needs no channel */
+	c = load_with("[recorder]\nhost = h\nusername = u\n[camera.a]\nname = A\npath = /live\n", "pw");
+	url = camera_resolve_url(c, g_ptr_array_index(c->cameras, 0), -1, NULL);
+	g_assert_cmpstr(url, ==, "rtsp://u:pw@h:554/live");
 	util_wipe_free(url);
 	config_free(c);
 }
@@ -129,6 +161,7 @@ int main(int argc, char **argv)
 {
 	g_test_init(&argc, &argv, NULL);
 	g_test_add_func("/camera/cycle-wrap", test_cycle);
+	g_test_add_func("/camera/path-templates", test_path_templates);
 	g_test_add_func("/camera/find", test_find);
 	g_test_add_func("/camera/url-encoding", test_url_encoding);
 	g_test_add_func("/camera/url-awkward-username", test_url_userinfo_awkward_username);

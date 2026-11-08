@@ -11,8 +11,10 @@ configuration semantics.
 | Command | Effect |
 |---|---|
 | `daemon [--config PATH] [--no-overlay]` | Run the daemon in the foreground. The daemon always starts hidden. |
-| `toggle` | Hidden → open on the current camera. Visible (connecting/live/reconnecting) → hide. In the error state, toggle retries instead of hiding; use `hide` to close. |
-| `next` / `prev` | Cycle cameras in config-file order, wrapping around. **While hidden they also open the overlay on the neighbouring camera.** While visible they switch to the new camera. |
+| `toggle` | Hidden → open on the **grid** view (or on the current camera when there is no grid, see `[grid]`). Visible (connecting/live/reconnecting) → hide. In the error state, toggle retries instead of hiding; use `hide` to close. |
+| `next` / `prev` | Cycle the views **grid → camera 1 → … → camera N → grid**, wrapping both ways (camera order = config-file order). While hidden they open the overlay on the grid. Without a grid they cycle cameras only, and while hidden open the neighbouring camera. |
+| `grid` | Open or switch to the grid view. Fails when there is no grid (fewer than 2 cameras or `[grid] enabled = false`). |
+| `audio [on\|off]` | Toggle (or set) camera audio. The setting lasts until the daemon stops (`[stream] audio` sets the start value). Audio plays only in the single-camera view; a speaker icon shows while it is on (dimmed with a cross in the grid, crossed out when the stream has no audio track). |
 | `show [CAMERA]` | Open on CAMERA (name, case-insensitive; or id; or zero-based index). Without an argument, open on the current camera. If it is already showing, nothing happens (unless it is in error or reconnecting, in which case it retries now). |
 | `hide` | Close the overlay from any state. Stops the stream, so nothing is decoded or connected while hidden. |
 | `status [--json]` | State, camera, index, count, last error. Never prints credentials or URLs. |
@@ -20,6 +22,7 @@ configuration semantics.
 | `reload` | Re-read `config.ini` and `secrets.ini`. Keeps the current camera if it still exists (matched by id); otherwise selects the first one and reconnects only if visible. An invalid file is rejected and the old configuration stays active. |
 | `quit` | Stop the daemon and remove the socket. |
 | `ping` | Health check. Prints the daemon version (`--json` shows the raw reply). |
+| `check` | Validate `config.ini` and `secrets.ini` offline (no daemon). Lists cameras and grid tiles, and whether a username and password were found, never their values. Exit 0 ok, 1 credentials missing, 2 invalid configuration. |
 
 Global options: `-c/--config PATH`, `--socket PATH`, `--no-spawn`, `--json`, `--version`, `-h/--help`.
 
@@ -50,11 +53,16 @@ so a stream that delivers one frame and drops cannot loop forever. `hide` always
 Example reply (values are illustrative):
 
 ```json
-{"ok":true,"visible":true,"state":"live","camera":"Front Door","camera_index":0,
- "camera_count":2,"error":null,"retries":0,"uptime_ms":4210}
+{"ok":true,"visible":true,"state":"live","view":"grid","camera":"Front Door","camera_index":0,
+ "camera_count":5,"audio":false,"error":null,"retries":0,"uptime_ms":4210,
+ "tiles":[{"camera":"Front Door","state":"live"},{"camera":"Driveway","state":"live"},
+          {"camera":"Garden","state":"reconnecting"},{"camera":"Garage","state":"live"}]}
 ```
 
-`error` is `null` unless the last stream error is set. The reply never contains the RTSP URL, the
+`view` is `grid` or `camera`; `camera` is the current single camera (the one `next` from the grid leaves
+for is camera 1). `tiles` lists the visible tiles (one in the single view, empty while hidden). In the grid,
+`state` is the best tile state (`live` if any tile is live) and `error` is the first tile error.
+`error` is `null` unless a stream error is set. The reply never contains the RTSP URL, the
 username or the password.
 
 ## Configuration

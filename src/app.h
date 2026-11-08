@@ -22,15 +22,23 @@ typedef struct {
 App *app_new(Config *cfg, const AppOptions *opt);
 void app_free(App *a); /* hides (frees video/overlay) */
 
+/* Aggregate over the visible tiles: LIVE if any tile is live, else CONNECTING, else RECONNECTING,
+ * else ERROR; HIDDEN when the overlay is closed. In the single-camera view this is that camera's state. */
 AppState app_state(const App *a);
+gboolean app_grid_view(const App *a);  /* TRUE while the grid (overview) view is selected */
+gboolean app_audio(const App *a);
 const Config *app_config(const App *a);
 const Camera *app_current_camera(const App *a);
 guint app_current_index(const App *a);
-guint app_retry_count(const App *a);
-const char *app_last_error(const App *a); /* sanitised; NULL when none */
+guint app_retry_count(const App *a);      /* highest retry count among the visible tiles */
+const char *app_last_error(const App *a); /* sanitised; first tile error; NULL when none */
 
 /* Commands (all return FALSE with *err set on failure). */
+/* toggle/next/prev while hidden open the start view: the grid when available (see [grid]), else the
+ * current camera. next/prev cycle grid -> camera 1 -> ... -> camera N -> grid, wrapping both ways. */
 gboolean app_toggle(App *a, GError **err);
+gboolean app_grid(App *a, GError **err); /* open/switch to the grid view */
+void app_set_audio(App *a, gboolean on);
 gboolean app_show(App *a, const char *camera_spec /* NULL = current */, GError **err);
 gboolean app_next(App *a, GError **err);
 gboolean app_prev(App *a, GError **err);

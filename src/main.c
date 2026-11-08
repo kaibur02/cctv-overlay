@@ -118,7 +118,7 @@ static char *build_request(const char *cmd, const char *arg)
 	json_builder_set_member_name(b, "cmd");
 	json_builder_add_string_value(b, cmd);
 	if (arg) {
-		json_builder_set_member_name(b, "camera");
+		json_builder_set_member_name(b, strcmp(cmd, "audio") == 0 ? "mode" : "camera");
 		json_builder_add_string_value(b, arg);
 	}
 	json_builder_end_object(b);
@@ -193,9 +193,24 @@ static gboolean spawn_daemon(const char *socket_path, GError **err)
 static void print_status_human(JsonObject *o)
 {
 	const char *state = json_object_get_string_member(o, "state");
-	printf("%s: %s (camera %" G_GINT64_FORMAT " of %" G_GINT64_FORMAT ", zero-based index)\n", state,
-	       json_object_get_string_member(o, "camera"), json_object_get_int_member(o, "camera_index"),
-	       json_object_get_int_member(o, "camera_count"));
+	const char *view = json_object_has_member(o, "view") ? json_object_get_string_member(o, "view") : "camera";
+	if (strcmp(view, "grid") == 0) {
+		JsonArray *t = json_object_get_array_member(o, "tiles");
+		printf("%s: grid view", state);
+		for (guint i = 0; t && i < json_array_get_length(t); i++) {
+			JsonObject *to = json_array_get_object_element(t, i);
+			printf("%s%s (%s)", i ? ", " : " [", json_object_get_string_member(to, "camera"),
+			       json_object_get_string_member(to, "state"));
+			if (i + 1 == json_array_get_length(t))
+				printf("]");
+		}
+		printf("\n");
+	} else {
+		printf("%s: %s (camera %" G_GINT64_FORMAT " of %" G_GINT64_FORMAT ", zero-based index)\n", state,
+		       json_object_get_string_member(o, "camera"), json_object_get_int_member(o, "camera_index"),
+		       json_object_get_int_member(o, "camera_count"));
+	}
+	printf("audio: %s\n", json_object_get_boolean_member_with_default(o, "audio", FALSE) ? "on" : "off");
 	if (!json_object_get_null_member(o, "error"))
 		printf("error: %s\n", json_object_get_string_member(o, "error"));
 }
@@ -292,6 +307,37 @@ static int run_client(const char *cmd, const char *arg)
 	return rc;
 }
 
+/* Offline validation for installers and humans: loads config.ini + secrets, prints a summary. The
+ * password is never printed; only whether one was found. Needs no daemon and no display. */
+static int run_check(void)
+{
+	GError *e = NULL;
+	Config *cfg = config_load(opt_config, &e);
+	if (!cfg) {
+		fprintf(stderr, "cctv-overlay: configuration error: %s\n", e->message);
+		g_error_free(e);
+		return EXIT_USAGE;
+	}
+	printf("config:   %s\n", cfg->config_path);
+	printf("cameras:  %u\n", cfg->cameras->len);
+	for (guint i = 0; i < cfg->cameras->len; i++) {
+		const Camera *c = g_ptr_array_index(cfg->cameras, i);
+		gboolean in_grid = FALSE;
+		for (guint g = 0; g < cfg->grid_count; g++)
+			in_grid |= cfg->grid_idx[g] == i;
+		printf("  %u  %-20s %s%s\n", i, c->name, c->url ? "(url override)" : c->host ? c->host : "",
+		       in_grid ? "  [grid]" : "");
+	}
+	printf("grid:     %s\n", cfg->grid_count ? "on" : "off");
+	printf("username: %s\n", cfg->username && *cfg->username ? "set" : "MISSING");
+	printf("password: %s\n", cfg->password && *cfg->password ? "set" : "MISSING (run install.sh --set-password)");
+	gboolean ok = cfg->password && *cfg->password && cfg->username && *cfg->username;
+	for (guint i = 0; i < cfg->cameras->len; i++)
+		ok |= ((const Camera *)g_ptr_array_index(cfg->cameras, i))->url != NULL;
+	config_free(cfg);
+	return ok ? EXIT_OK : EXIT_FAILED;
+}
+
 /* ---------------- entry ---------------- */
 
 int main(int argc, char **argv)
@@ -302,8 +348,10 @@ int main(int argc, char **argv)
 	g_option_context_set_summary(ctx,
 		"Commands:\n"
 		"  daemon           run the overlay daemon in the foreground\n"
-		"  toggle           show/hide the overlay\n"
-		"  next | prev      cycle cameras (opens the overlay if hidden)\n"
+		"  toggle           show/hide the overlay (opens on the grid view when there is one)\n"
+		"  next | prev      cycle grid -> cameras -> grid (opens the overlay if hidden)\n"
+		"  grid             open/switch to the grid view (first four cameras by default)\n"
+		"  audio [on|off]   toggle (or set) camera audio; a speaker icon shows while it is on\n"
 		"  show [CAMERA]    open the overlay on CAMERA (name, id or zero-based index)\n"
 		"  hide             close the overlay and free all resources\n"
 		"  status [--json]  print the current state\n"
@@ -311,6 +359,7 @@ int main(int argc, char **argv)
 		"  reload           re-read the configuration\n"
 		"  quit             stop the daemon\n"
 		"  ping             check that the daemon answers\n"
+		"  check            validate config.ini and secrets offline (prints no secrets)\n"
 		"\nExit codes: 0 ok, 1 command failed, 2 usage/config error, 3 daemon unavailable, 4 timeout");
 	g_option_context_add_main_entries(ctx, ENTRIES, NULL);
 	if (!g_option_context_parse(ctx, &argc, &argv, &e)) {
@@ -330,17 +379,26 @@ int main(int argc, char **argv)
 
 	const char *cmd = argv[1];
 	const char *arg = argc > 2 ? argv[2] : NULL;
-	static const char *const SIMPLE[] = { "toggle", "next", "prev", "hide", "status", "list", "reload",
+	static const char *const SIMPLE[] = { "toggle", "next", "prev", "grid", "hide", "status", "list", "reload",
 					      "quit", "ping", NULL };
 
-	if (argc > 3 || (arg && strcmp(cmd, "show") != 0)) {
+	if (argc > 3 || (arg && strcmp(cmd, "show") != 0 && strcmp(cmd, "audio") != 0)) {
 		fprintf(stderr, "cctv-overlay: unexpected argument '%s' for '%s'\n", argv[argc > 3 ? 3 : 2], cmd);
 		return EXIT_USAGE;
 	}
 	if (strcmp(cmd, "daemon") == 0)
 		return run_daemon();
+	if (strcmp(cmd, "check") == 0)
+		return run_check();
 	if (strcmp(cmd, "show") == 0)
 		return run_client(cmd, arg);
+	if (strcmp(cmd, "audio") == 0) {
+		if (arg && strcmp(arg, "on") != 0 && strcmp(arg, "off") != 0 && strcmp(arg, "toggle") != 0) {
+			fprintf(stderr, "cctv-overlay: audio takes on, off or toggle\n");
+			return EXIT_USAGE;
+		}
+		return run_client(cmd, arg);
+	}
 	for (guint i = 0; SIMPLE[i]; i++)
 		if (strcmp(cmd, SIMPLE[i]) == 0)
 			return run_client(cmd, NULL);
