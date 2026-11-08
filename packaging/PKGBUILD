@@ -1,0 +1,60 @@
+# DRAFT — not yet tested with makepkg on a clean system. Maintainer: TBD.
+#
+# Build from a local git checkout of this repository (only COMMITTED content is packaged):
+#   cd packaging && makepkg -si
+#
+# For a release, replace the source line with a tagged git URL, for example:
+#   source=("$pkgname::git+https://<repository-url>#tag=v$pkgver")
+
+pkgname=cctv-overlay
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Lightweight CCTV picture-in-picture overlay for Wayland (layer-shell, libmpv, Dahua/RTSP)'
+arch=('x86_64')
+url='https://example.invalid/cctv-overlay' # TBD: project URL
+# TBD: the licence has not been decided (MIT is proposed). Do not publish with this value.
+license=('custom:TBD')
+depends=(
+  'glib2'
+  'json-glib'
+  'gtk4'
+  'gtk4-layer-shell'   # must be linked before libwayland; the Makefile handles the order
+  'libepoxy'
+  'mpv'                # provides libmpv
+)
+makedepends=(
+  'base-devel'
+  'pkgconf'
+  'git'
+)
+optdepends=(
+  'libva-utils: vainfo, to check VA-API hardware decode'
+)
+# Local checkout as the source. Only committed files are included.
+source=("$pkgname::git+file://$(cd "$startdir/.." && pwd)")
+# makepkg does not checksum git sources; SKIP is the correct value here.
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname"
+  make PREFIX=/usr
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+
+  # Binary, example config/secrets (never overwrites user files), behaviour and overlay docs.
+  make DESTDIR="$pkgdir" PREFIX=/usr install
+
+  # Systemd user unit: NOT enabled by the package. Users run
+  #   systemctl --user enable --now cctv-overlay.service
+  install -Dm644 packaging/cctv-overlay.service "$pkgdir/usr/lib/systemd/user/$pkgname.service"
+
+  # Documentation and optional Hyprland snippets (examples only; nothing is applied automatically).
+  local doc="$pkgdir/usr/share/doc/$pkgname"
+  install -Dm644 README.md "$doc/README.md"
+  install -Dm644 CHANGELOG.md "$doc/CHANGELOG.md"
+  install -Dm644 -t "$doc" docs/install.md docs/configuration.md docs/hyprland.md docs/troubleshooting.md
+  install -Dm644 integrations/hyprland/example.conf "$doc/hyprland/example.conf"
+  install -Dm644 integrations/hyprland/example.lua "$doc/hyprland/example.lua"
+}

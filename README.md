@@ -1,63 +1,128 @@
 # CCTV Overlay for Linux
 
-A lightweight, self-contained Linux application that shows a live Dahua/RTSP camera feed in a floating,
-click-through picture-in-picture overlay above the desktop — including fullscreen applications where the
-compositor permits it.
+A lightweight, self-contained Linux daemon that shows a live Dahua/RTSP camera feed in a small,
+click-through picture-in-picture overlay above your desktop, including over fullscreen windows on
+compositors that allow it.
 
-> **Status: planning / feasibility (Milestone 0 complete). No application code yet.**
-> The implementation gate is pending the owner's go-ahead. See [`PLAN.md`](PLAN.md),
-> [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`DELEGATION.md`](DELEGATION.md).
+> **Status: working on Hyprland, pre-release (0.1.0 not yet tagged).**
+> - Verified on Hyprland 0.56.2 (Arch Linux, AMD GPU with VA-API): the overlay shows a live stream over a
+>   true fullscreen window, focus does not move, typing reaches the fullscreen application, and the
+>   overlay releases its resources when hidden. Physical mouse click-through is still to be confirmed by hand.
+> - Video and control were verified against a **local loopback RTSP server**. A **real Dahua camera has not
+>   been tested yet**; real camera validation is pending.
+> - Other compositors and GPUs are untested. The licence is not decided yet (see below).
 
-## What it will do
+## What it does
 
-- **Toggle** the overlay with one configurable action (keyboard shortcut assigned later by the user).
-- **Cycle** cameras with a separate configurable action, wrapping around the configured list.
-- Show video **above normal windows and fullscreen content** using the Wayland layer-shell overlay layer.
-- **Never take keyboard focus** and **pass mouse clicks through** to the application underneath.
-- Decode the NVR's **sub-stream** with VA-API hardware decoding and a low-latency RTSP profile.
-- Release the player, network connection and GPU resources when the overlay is hidden.
-- Keep credentials **out of source, Git, logs and process listings**.
-- Run as a small user-level daemon with a Unix-socket control interface, so any desktop can bind its own keys.
+- **Toggle** the overlay with one command: `cctv-overlay toggle`. You bind the key yourself.
+- **Cycle** cameras with `cctv-overlay next` and `prev`, wrapping around the configured list.
+- Show video in the **layer-shell `overlay` layer**, above normal windows and fullscreen content.
+- **Never take keyboard focus**; the overlay is built to pass pointer input through to the window below
+  (empty input region; physical click test pending).
+- Decode the camera's **sub stream** with VA-API hardware decoding and a low-latency libmpv profile.
+- **Release everything when hidden**: no player, no RTSP connection and no GPU surface while the overlay is closed.
+- Keep credentials out of config files in the repository, out of logs and out of command lines.
+- Run as a user-level daemon with a local Unix-socket control interface. It has no network listener.
 
-## Planned technology
+## Quick start
 
-| Layer | Choice | Why |
-|---|---|---|
-| Overlay surface | GTK4 + `gtk4-layer-shell` (`wlr-layer-shell`, `overlay` layer) | The only reliable Wayland way to sit above fullscreen content without taking focus or input |
-| Video | `libmpv` render API into a `GtkGLArea`, VA-API decode | Already installed, mature RTSP/HEVC handling, low-latency profile, reusable GPU surfaces |
-| Control | Unix domain socket + JSON lines, thin CLI | No keyboard handling in the app; any compositor or script can call it; no network exposure |
-| Config | INI via GLib `GKeyFile`, separate `secrets.ini` (0600) | No extra parser dependency, comments, ordered camera groups |
-| Build | C11 + `make` + `pkg-config` | Small dependency set; all build headers already present on the target system |
+Full instructions: [`docs/install.md`](docs/install.md).
 
-These choices are **provisional** until the Milestone 1 spike validates fullscreen visibility, input
-passthrough and libmpv/GTK4 rendering. Alternatives and rejection reasons are in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+```sh
+# 1. Build (Arch: sudo pacman -S --needed base-devel pkgconf glib2 json-glib libepoxy gtk4 gtk4-layer-shell mpv)
+git clone <repository-url> cctv-overlay && cd cctv-overlay
+make
 
-## Target environment (verified 2026-11-08)
+# 2. Install without root (or see docs/install.md for a system-wide install)
+make PREFIX="$HOME/.local" install
 
-- Omarchy 4.5.0 / Arch Linux, Hyprland 0.56.2 on Wayland (Aquamarine 0.15.1)
-- AMD Ryzen 5 5600X, Radeon RX 9070 XT (Navi 48, `gfx1201`), Mesa 26.2.5, kernel 7.2.15
-- VA-API H.264/HEVC/AV1 decode confirmed by `vainfo`
-- Dual monitor: DP-2 1920x1080 @ 99.93 Hz at (0,0); DP-1 2560x1440 @ 164.96 Hz at (1920,-110), scale 1
-- Recorder: Dahua device at the owner's private LAN address — RTSP/554 open, Dahua-style Digest auth, web
-  UI reachable (the address in the original brief resolved to a printer, not the recorder; the owner
-  corrected it). The concrete local address lives only in the owner's config and internal project memory.
+# 3. Create your config and secrets (never overwrites existing files)
+mkdir -p ~/.config/cctv-overlay
+cp -n ~/.local/share/doc/cctv-overlay/config.example.ini ~/.config/cctv-overlay/config.ini
+( umask 077 && cp -n ~/.local/share/doc/cctv-overlay/secrets.example.ini ~/.config/cctv-overlay/secrets.ini )
+$EDITOR ~/.config/cctv-overlay/config.ini ~/.config/cctv-overlay/secrets.ini   # set host, channels, password
 
-## Security
+# 4. Run (in a terminal, to see logs)
+cctv-overlay daemon
 
-The repository contains **no credentials**. The public example config has no password field populated.
-Local credentials live in `~/.config/cctv-overlay/secrets.ini` with mode `0600` (or an environment
-variable), are never written to logs, and are never passed on a command line. See `ARCHITECTURE.md`
-§ Security model.
+# 5. In another terminal, or from a key binding you choose
+cctv-overlay toggle
+```
+
+Key bindings are not chosen for you. Placeholder examples for Hyprland are in
+[`docs/hyprland.md`](docs/hyprland.md) and [`integrations/hyprland/`](integrations/hyprland/).
+
+## Commands
+
+| Command | Effect |
+|---|---|
+| `cctv-overlay daemon` | Run the daemon in the foreground |
+| `cctv-overlay toggle` | Show or hide the overlay |
+| `cctv-overlay next` / `prev` | Next or previous camera (opens the overlay if hidden) |
+| `cctv-overlay show [CAMERA]` | Open on a camera (name, id or zero-based index) |
+| `cctv-overlay hide` | Close the overlay and release all resources |
+| `cctv-overlay status [--json]` | State, camera, last error (never credentials or URLs) |
+| `cctv-overlay list` | List configured cameras (`*` marks the current one) |
+| `cctv-overlay reload` | Re-read `config.ini` and `secrets.ini` |
+| `cctv-overlay quit` | Stop the daemon |
+| `cctv-overlay ping` | Health check |
+
+Exit codes and details: [`docs/behaviour.md`](docs/behaviour.md).
 
 ## Documentation
 
-- [`PLAN.md`](PLAN.md) — milestones, acceptance mapping, risks and performance targets
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — components, protocols, config schema, open technical questions
-- [`DELEGATION.md`](DELEGATION.md) — how the work is split across agents and waves
-- [`docs/adr/`](docs/adr/) — public architecture decision records
-- `.agent-work/` — internal project memory and specialist reports (not part of a public release)
+| Document | For |
+|---|---|
+| [`docs/install.md`](docs/install.md) | Dependencies, build, install, systemd user unit |
+| [`docs/configuration.md`](docs/configuration.md) | Every config key, secrets file, example |
+| [`docs/hyprland.md`](docs/hyprland.md) | Binding commands in Hyprland, layer behaviour |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and how to read the logs |
+| [`docs/behaviour.md`](docs/behaviour.md) | Commands, states, exit codes, security model |
+| [`docs/overlay.md`](docs/overlay.md) | Overlay window, layers, monitors, video engine |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Components, state machine, design rationale |
+| [`docs/adr/`](docs/adr/) | Architecture decision records |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release notes |
+
+## Architecture
+
+One daemon owns one GTK 4 layer-shell window and one libmpv player. The window uses an empty input region
+and keyboard mode `none`, so it is click-through and never takes focus. Video renders through libmpv's OpenGL
+render API into a `GtkGLArea`, decoded with VA-API. A thin CLI sends one JSON line per request over a Unix
+socket in `$XDG_RUNTIME_DIR`. Details and trade-offs are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## Limitations
+
+- **Wayland with layer-shell only.** The daemon refuses to start with `overlay unavailable` on compositors
+  without wlr layer-shell (GNOME, X11). Per the gtk4-layer-shell documentation, wlroots-based compositors and
+  KDE Wayland are supported in principle; only Hyprland 0.56.2 has been tested.
+- **Layer `overlay` only by default.** On Hyprland 0.56 a `top` layer is hidden under fullscreen windows.
+- **Scanout cost.** While the overlay is visible, direct scanout of a fullscreen window on that monitor is off.
+  The effect on game performance has not been measured yet.
+- **Real camera not yet tested.** Use the loopback test harness (`make check-real`) to check your setup first.
+- **Recorder support is Dahua-style RTSP only.** The URL builder uses the Dahua path and channel scheme. Other
+  cameras need a `url` override, which puts the credentials in the config file (discouraged).
+- **Some settings are accepted but not used yet:** `start_hidden`, `preview_snapshot`, `preload_next` and
+  `opacity`. See [`docs/configuration.md`](docs/configuration.md).
+- **No audio.** Video only, by design.
+- **No recording, snapshots to disk, motion alerts or PTZ.** Out of scope for 0.1.
+- **Password in memory.** The daemon keeps the recorder password in process memory while it runs, so a core
+  dump could contain it.
+
+## Security summary
+
+- The repository contains no credentials. The example config has no password.
+- The password lives in `secrets.ini` (mode `0600`) or in the `CCTV_OVERLAY_PASSWORD` environment variable,
+  never on a command line and never in `config.ini`.
+- Logs and error messages are redacted. The RTSP URL with credentials is built only when a stream starts and
+  is wiped after use.
+- The control socket is in `$XDG_RUNTIME_DIR/cctv-overlay/` (directory `0700`, socket `0600`). Only the same user
+  is accepted. There is no network listener.
+- Installation never overwrites an existing `config.ini` or `secrets.ini`; it installs examples only.
+- Nothing edits your compositor or desktop configuration automatically.
+
+A formal security review has not been completed yet.
 
 ## Licence
 
-TBD — MIT is the proposed default; the owner decides before the first public release.
+**To be decided.** The project is not yet released under any licence. MIT is the proposed default. Until a
+`LICENSE` file is added, the code is not licensed for reuse by others.

@@ -1,0 +1,54 @@
+# cctv-overlay daemon as a systemd USER unit. Not enabled by installation.
+#
+#   cp -n packaging/cctv-overlay.service ~/.config/systemd/user/    # or use the package copy
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now cctv-overlay.service
+#
+# If the binary is not /usr/bin/cctv-overlay (for example `make PREFIX=$HOME/.local install`),
+# change ExecStart in YOUR copy. Do not edit the packaged file in place.
+#
+# Requirements: WAYLAND_DISPLAY must be in the user manager's environment (see docs/install.md).
+# The hardening options below are a best effort. They are not yet tested on a live system.
+
+[Unit]
+Description=CCTV picture-in-picture overlay (cctv-overlay daemon)
+Documentation=file:///usr/share/doc/cctv-overlay/install.md
+# Crash loops stop after 5 failures in 2 minutes.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cctv-overlay daemon
+# Exit 2 = configuration error: restarting cannot fix it. Exit 1 (overlay unavailable, for example
+# no Wayland display yet) is retried with a delay.
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+
+# ---- hardening ----
+NoNewPrivileges=yes
+# Read-only system and home. The GPU (/dev/dri) and the Wayland socket stay reachable because
+# PrivateDevices is not set and the runtime directory is writable (control socket, lock file).
+ProtectSystem=strict
+ReadWritePaths=%t
+ProtectHome=read-only
+ReadWritePaths=%h/.cache
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# AF_UNIX: Wayland and the control socket. AF_INET/AF_INET6: RTSP to the recorder. AF_NETLINK: GLib/ffmpeg.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077
+# Core dumps can contain the recorder password held in memory.
+LimitCORE=0
+
+[Install]
+WantedBy=default.target

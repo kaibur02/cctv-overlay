@@ -87,6 +87,13 @@ install: $(BIN)
 	install -Dm644 examples/secrets.example.ini $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/secrets.example.ini
 	install -Dm644 docs/behaviour.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/behaviour.md
 	install -Dm644 docs/overlay.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/overlay.md
+	install -Dm644 docs/install.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/install.md
+	install -Dm644 docs/configuration.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/configuration.md
+	install -Dm644 docs/hyprland.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland.md
+	install -Dm644 docs/troubleshooting.md $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/troubleshooting.md
+	install -Dm644 integrations/hyprland/example.lua $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland/example.lua
+	install -Dm644 integrations/hyprland/example.conf $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/hyprland/example.conf
+	install -Dm644 packaging/cctv-overlay.service $(DESTDIR)$(PREFIX)/share/doc/cctv-overlay/cctv-overlay.service
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN)

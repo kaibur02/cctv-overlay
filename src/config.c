@@ -326,8 +326,8 @@ Config *config_load(const char *path, GError **err)
 
 	if (!g_key_file_load_from_file(kf, p, G_KEY_FILE_NONE, &e)) {
 		if (g_error_matches(e, G_FILE_ERROR, G_FILE_ERROR_NOENT))
-			ok = FAIL(err, p, "config file not found; copy examples/config.example.ini there "
-				  "(see docs/behaviour.md)");
+			ok = FAIL(err, p, "config file not found; copy config.example.ini there (in the source tree: "
+				  "examples/, installed: <prefix>/share/doc/cctv-overlay/; see docs/install.md)");
 		else
 			ok = FAIL(err, p, "%s", e->message);
 		g_clear_error(&e);
